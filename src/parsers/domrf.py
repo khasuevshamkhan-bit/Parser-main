@@ -15,7 +15,7 @@ class DomRfParser(BaseParser):
     :return: initialized Dom.rf parser
     """
 
-    def __init__(self, root_url: str = "https://xn--80az8a.xn--p1ai") -> None:
+    def __init__(self, root_url: str = "https://xn--d1aqf.xn--p1ai/sitemap.xml") -> None:
         super().__init__()
         self.root_url = root_url.rstrip("/")
         self.keywords = ["поддерж", "субсид", "пособ", "ипотек", "льгот"]

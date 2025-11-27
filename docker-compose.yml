@@ -1,7 +1,6 @@
-version: "3.9"
-
 services:
-  db:
+
+  database:
     image: mysql:8.0
     restart: unless-stopped
     environment:
@@ -12,17 +11,24 @@ services:
     ports:
       - "3306:3306"
     command: ["mysqld", "--default-authentication-plugin=mysql_native_password"]
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - db_data:/var/lib/mysql
 
   app:
     build: .
+    container_name: parser_backend_container
     depends_on:
-      - db
+      database:
+        condition: service_healthy
     environment:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
-      DB_HOST: db
+      DB_HOST: database
       DB_PORT: 3306
       DB_NAME: ${DB_NAME}
     ports:
