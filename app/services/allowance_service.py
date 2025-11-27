@@ -1,0 +1,96 @@
+from app.dto import AllowanceCreateDTO, AllowanceDTO
+from app.exceptions import AllowanceParsingError, AllowanceValidationError
+from app.models import Allowance as AllowanceModel
+from app.parsers.base import BaseParser
+from app.repositories.allowance_repository import AllowanceRepository
+
+
+class AllowanceService:
+    """
+    Service layer orchestrating allowance workflows.
+
+    :return: configured allowance service
+    """
+
+    def __init__(self, repository: AllowanceRepository) -> None:
+        self._repository = repository
+
+    async def list_allowances(self) -> list[AllowanceDTO]:
+        """
+        Fetch all allowances from storage.
+
+        :return: collection of allowance schemas
+        """
+
+        models = await self._repository.list_all()
+        return [self._serialize(model=model) for model in models]
+
+    async def create_allowance(self, payload: AllowanceCreateDTO) -> AllowanceDTO:
+        """
+        Create and persist an allowance from payload data.
+
+        :return: saved allowance schema
+        """
+
+        name = self._clean_text(value=payload.name)
+        npa_number = self._clean_text(value=payload.npa_number)
+        subjects = self._normalize_subjects(subjects=payload.subjects)
+        if not name or not npa_number:
+            raise AllowanceValidationError("Allowance name and NPA number are required.")
+        allowance = AllowanceModel(name=name, npa_number=npa_number, subjects=subjects)
+        saved = await self._repository.create(allowance=allowance)
+        return self._serialize(model=saved)
+
+    async def parse_and_replace(self, parser: BaseParser) -> list[AllowanceDTO]:
+        """
+        Run parser and replace stored allowances with parsed results.
+
+        :return: persisted parsed allowances
+        """
+
+        parsed = await parser.run()
+        if not parsed:
+            raise AllowanceParsingError("No allowances could be parsed from the source.")
+        allowances: list[AllowanceModel] = []
+        for item in parsed:
+            name = self._clean_text(value=item.name)
+            npa_number = self._clean_text(value=item.npa_number)
+            subjects = self._normalize_subjects(subjects=item.subjects)
+            if not name or not npa_number:
+                raise AllowanceParsingError("Parsed allowance lacks required fields.")
+            allowances.append(AllowanceModel(name=name, npa_number=npa_number, subjects=subjects))
+        models = await self._repository.replace_all(allowances=allowances)
+        return [self._serialize(model=model) for model in models]
+
+    def _serialize(self, model: AllowanceModel) -> AllowanceDTO:
+        """
+        Convert an allowance model to outward schema.
+
+        :return: serialized allowance schema
+        """
+
+        subjects = model.subjects.split(",") if model.subjects else None
+        return AllowanceDTO(
+            id=model.id, name=model.name, npa_number=model.npa_number, subjects=subjects
+        )
+
+    def _clean_text(self, value: str) -> str:
+        """
+        Normalize free-form text for persistence.
+
+        :return: cleaned text value
+        """
+
+        return " ".join(value.split()).strip()
+
+    def _normalize_subjects(self, subjects: list[str] | None) -> str | None:
+        """
+        Normalize subject collection into storage-friendly string.
+
+        :return: comma-joined subjects or None
+        """
+
+        if not subjects:
+            return None
+        normalized = [self._clean_text(value=subject) for subject in subjects if self._clean_text(value=subject)]
+        return ",".join(normalized) if normalized else None
