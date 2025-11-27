@@ -1,4 +1,4 @@
-from app.parsers.domrf import DomRfParser
+from src.parsers.domrf import DomRfParser
 
 
 def get_domrf_parser() -> DomRfParser:

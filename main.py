@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 
-from app.api.allowances import router as allowances_router
+from src.routes.allowances import router as allowances_router
 
 app = FastAPI(title="Allowances Parser Service", swagger_ui_parameters={"operationsSorter": "method"})
 app.include_router(router=allowances_router)

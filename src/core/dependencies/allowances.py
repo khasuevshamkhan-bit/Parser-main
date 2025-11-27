@@ -1,9 +1,9 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_session
-from app.repositories.allowance_repository import AllowanceRepository
-from app.services.allowance_service import AllowanceService
+from src.core.database import get_session
+from src.repositories.allowance_repository import AllowanceRepository
+from src.services.allowance_service import AllowanceService
 
 
 async def get_allowance_repository(session: AsyncSession = Depends(get_session)) -> AllowanceRepository:
@@ -16,7 +16,8 @@ async def get_allowance_repository(session: AsyncSession = Depends(get_session))
     return AllowanceRepository(session=session)
 
 
-async def get_allowance_service(repository: AllowanceRepository = Depends(get_allowance_repository)) -> AllowanceService:
+async def get_allowance_service(
+        repository: AllowanceRepository = Depends(get_allowance_repository)) -> AllowanceService:
     """
     Provide allowance service wired with repository.
 
@@ -24,5 +25,3 @@ async def get_allowance_service(repository: AllowanceRepository = Depends(get_al
     """
 
     return AllowanceService(repository=repository)
-
-

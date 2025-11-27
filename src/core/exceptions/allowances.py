@@ -1,6 +1,5 @@
 from fastapi.exceptions import HTTPException
 
-
 """
 Allowance domain exceptions aligned with HTTP semantics.
 

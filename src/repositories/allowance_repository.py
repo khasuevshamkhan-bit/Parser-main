@@ -1,7 +1,7 @@
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Allowance
+from src.models.db.allowance import Allowance
 
 
 class AllowanceRepository:

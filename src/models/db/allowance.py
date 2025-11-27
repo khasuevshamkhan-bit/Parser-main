@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from src.models.db.base import Base
 
 
 class Allowance(Base):

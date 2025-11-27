@@ -1,8 +1,8 @@
-from app.dto import AllowanceCreateDTO, AllowanceDTO
-from app.exceptions import AllowanceParsingError, AllowanceValidationError
-from app.models import Allowance as AllowanceModel
-from app.parsers.base import BaseParser
-from app.repositories.allowance_repository import AllowanceRepository
+from src.core.exceptions.allowances import AllowanceParsingError, AllowanceValidationError
+from src.models.db.allowance import Allowance
+from src.models.dto.allowances import AllowanceCreateDTO, AllowanceDTO
+from src.parsers.base import BaseParser
+from src.repositories.allowance_repository import AllowanceRepository
 
 
 class AllowanceService:
@@ -37,7 +37,7 @@ class AllowanceService:
         subjects = self._normalize_subjects(subjects=payload.subjects)
         if not name or not npa_number:
             raise AllowanceValidationError("Allowance name and NPA number are required.")
-        allowance = AllowanceModel(name=name, npa_number=npa_number, subjects=subjects)
+        allowance = Allowance(name=name, npa_number=npa_number, subjects=subjects)
         saved = await self._repository.create(allowance=allowance)
         return self._serialize(model=saved)
 
@@ -51,18 +51,18 @@ class AllowanceService:
         parsed = await parser.run()
         if not parsed:
             raise AllowanceParsingError("No allowances could be parsed from the source.")
-        allowances: list[AllowanceModel] = []
+        allowances: list[Allowance] = []
         for item in parsed:
             name = self._clean_text(value=item.name)
             npa_number = self._clean_text(value=item.npa_number)
             subjects = self._normalize_subjects(subjects=item.subjects)
             if not name or not npa_number:
                 raise AllowanceParsingError("Parsed allowance lacks required fields.")
-            allowances.append(AllowanceModel(name=name, npa_number=npa_number, subjects=subjects))
+            allowances.append(Allowance(name=name, npa_number=npa_number, subjects=subjects))
         models = await self._repository.replace_all(allowances=allowances)
         return [self._serialize(model=model) for model in models]
 
-    def _serialize(self, model: AllowanceModel) -> AllowanceDTO:
+    def _serialize(self, model: Allowance) -> AllowanceDTO:
         """
         Convert an allowance model to outward schema.
 

@@ -1,12 +1,11 @@
-import asyncio
 import re
 import xml.etree.ElementTree as etree
 
-from bs4 import BeautifulSoup
 import httpx
+from bs4 import BeautifulSoup
 
-from app.dto import AllowanceDTO
-from app.parsers.base import BaseParser
+from src.models.dto.allowances import AllowanceDTO
+from src.parsers.base import BaseParser
 
 
 class DomRfParser(BaseParser):

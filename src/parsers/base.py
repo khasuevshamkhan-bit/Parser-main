@@ -5,7 +5,7 @@ from enum import Enum
 
 import httpx
 
-from app.dto import AllowanceDTO
+from src.models.dto.allowances import AllowanceDTO
 
 
 class UserAgent(str, Enum):
