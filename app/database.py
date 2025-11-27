@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
@@ -10,7 +11,7 @@ engine = create_async_engine(url=settings.database.url(), echo=False, future=Tru
 SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False, autocommit=False)
 
 
-async def get_session():
+async def get_session() -> AsyncIterator[AsyncSession]:
     """
     Provide a transactional database session.
 

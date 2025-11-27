@@ -29,7 +29,7 @@ class DomRfParser(BaseParser):
         """
 
         sitemap_url = f"{self.root_url}/sitemap.xml"
-        async with await self._client() as client:
+        async with self._client() as client:
             response = await client.get(sitemap_url)
             if response.status_code != httpx.codes.OK:
                 return [self.root_url]
@@ -50,7 +50,7 @@ class DomRfParser(BaseParser):
         :return: list of allowances extracted from the page
         """
 
-        async with await self._client() as client:
+        async with self._client() as client:
             response = await client.get(source)
             if response.status_code != httpx.codes.OK:
                 return []

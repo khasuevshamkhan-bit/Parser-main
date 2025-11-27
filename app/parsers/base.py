@@ -75,7 +75,7 @@ class BaseParser(ABC):
         delay = random.uniform(self.min_delay_seconds, self.max_delay_seconds)
         await asyncio.sleep(delay)
 
-    async def _client(self) -> httpx.AsyncClient:
+    def _client(self) -> httpx.AsyncClient:
         """
         Build an HTTP client with a rotated user agent header.
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AllowanceDTO(BaseModel):
@@ -13,8 +13,7 @@ class AllowanceDTO(BaseModel):
     npa_number: str = Field(...)
     subjects: list[str] | None = Field(default=None)
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AllowanceCreateDTO(BaseModel):
