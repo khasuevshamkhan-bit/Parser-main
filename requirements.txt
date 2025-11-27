@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic>=2,<3
+httpx
+beautifulsoup4
+aiomysql
+alembic
+pymysql
