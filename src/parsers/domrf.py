@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 
 from bs4 import BeautifulSoup
@@ -35,6 +36,7 @@ class CssSelectors:
     DETAIL_TAGS: str = "div.program-directory__tags-item"
     REGULATION_SECTION: str = "div.information-block-document"
     REGULATION_LINK: str = "a.information-block-document__title"
+    PARTICIPANT_TAB: str = "div.tab-panel[data-tab-panel='Требования к участнику']"
 
 
 class DomRfParser(BaseSeleniumParser):
@@ -56,13 +58,6 @@ class DomRfParser(BaseSeleniumParser):
     _EXCLUDED_URL_PATTERNS: tuple[str, ...] = (
         "/catalog/region-is-",
         "/catalog/?",
-    )
-
-    # regex patterns for law number extraction
-    _LAW_NUMBER_PATTERNS: tuple[re.Pattern[str], ...] = (
-        re.compile(r"№\s*(\d+(?:-ФЗ|-П|-н))", re.IGNORECASE),
-        re.compile(r"(\d+)-ФЗ", re.IGNORECASE),
-        re.compile(r"(\d+)-П", re.IGNORECASE),
     )
 
     def __init__(self) -> None:
@@ -219,7 +214,7 @@ class DomRfParser(BaseSeleniumParser):
         if allowance:
             logger.info(
                 f"[{self._parser_name}] Extracted: {allowance.name[:50]}... | "
-                f"NPA: {allowance.npa_number} | Level: {allowance.level}"
+                f"Regulation: {allowance.npa_name[:80]} | Level: {allowance.level}"
             )
             return [allowance]
 
@@ -239,24 +234,28 @@ class DomRfParser(BaseSeleniumParser):
         if not name:
             return None
 
-        npa_number, npa_name = self._extract_regulation_info(soup=soup)
-        if not npa_number:
-            npa_number = self._generate_fallback_id(url=url)
-
-        if not npa_number:
+        npa_name = self._extract_regulation_text(soup=soup)
+        if not npa_name:
             return None
 
         # get level from pre-extracted data or from page
         level = self._program_levels.get(url) or self._extract_level_from_page(soup=soup)
 
-        subjects = self._extract_program_tags(soup=soup)
+        validity_period, is_active = self._extract_validity_period(soup=soup)
+        if not is_active:
+            logger.info(
+                f"[{self._parser_name}] Skipping expired program: {name[:50]}..."
+            )
+            return None
+
+        subjects = self._extract_participants(soup=soup)
 
         return AllowanceDTO(
             name=name,
-            npa_number=npa_number,
             npa_name=npa_name,
             level=level,
             subjects=subjects,
+            validity_period=validity_period,
         )
 
     def _extract_program_name(self, soup: BeautifulSoup) -> str:
@@ -309,128 +308,118 @@ class DomRfParser(BaseSeleniumParser):
 
         return None
 
-    def _extract_regulation_info(self, soup: BeautifulSoup) -> tuple[str, str | None]:
+    def _extract_regulation_text(self, soup: BeautifulSoup) -> str:
         """
-        Extract law number and full name from "Программа регулируется" section.
+        Extract full text from the "Программа регулируется" section.
 
         :param soup: parsed HTML document
-        :return: tuple of (law_number, full_law_name)
+        :return: normalized regulation text or empty string
         """
 
-        # find regulation section
         regulation_section = soup.select_one(self._selectors.REGULATION_SECTION)
         if not regulation_section:
-            return self._fallback_regulation_search(soup=soup)
+            return ""
 
-        # extract from the document link
-        law_link = regulation_section.select_one(self._selectors.REGULATION_LINK)
-        if not law_link:
-            return self._fallback_regulation_search(soup=soup)
+        regulation_texts: list[str] = []
 
-        full_law_text = self.normalize_text(value=law_link.get_text())
-        npa_number = self._extract_law_number(text=full_law_text)
+        for link in regulation_section.select(self._selectors.REGULATION_LINK):
+            text = self.normalize_text(value=link.get_text())
+            if text:
+                regulation_texts.append(text)
 
-        if npa_number:
-            return npa_number, full_law_text if len(full_law_text) > 20 else None
+        if regulation_texts:
+            # remove duplicates while preserving order
+            seen: set[str] = set()
+            unique_texts: list[str] = []
+            for text in regulation_texts:
+                if text not in seen:
+                    seen.add(text)
+                    unique_texts.append(text)
 
-        return self._fallback_regulation_search(soup=soup)
+            joined = "; ".join(unique_texts)
+            return joined[:512]
 
-    def _fallback_regulation_search(self, soup: BeautifulSoup) -> tuple[str, str | None]:
+        body_text = self.normalize_text(value=regulation_section.get_text(" "))
+        return body_text[:512]
+
+    def _extract_validity_period(self, soup: BeautifulSoup) -> tuple[str | None, bool]:
         """
-        Search entire page for law information as fallback.
+        Extract validity period from page tags and determine if program is active.
 
         :param soup: parsed HTML document
-        :return: tuple of (law_number, full_law_name)
+        :return: tuple of (validity text, is_active)
         """
 
-        page_text = soup.get_text()
-        npa_number = self._extract_law_number(text=page_text)
+        today = datetime.today().date()
 
-        if not npa_number:
-            return "", None
-
-        npa_name = self._extract_full_law_name(text=page_text)
-        return npa_number, npa_name
-
-    def _extract_law_number(self, text: str) -> str:
-        """
-        Extract law number from text using regex patterns.
-
-        :param text: text to search
-        :return: extracted law number or empty string
-        """
-
-        for pattern in self._LAW_NUMBER_PATTERNS:
-            match = pattern.search(text)
-            if match:
-                return self.normalize_text(value=match.group())
-
-        return ""
-
-    def _extract_full_law_name(self, text: str) -> str | None:
-        """
-        Extract full law name from text.
-
-        :param text: text to search
-        :return: full law name or None
-        """
-
-        law_patterns = (
-            r"Федеральный закон[^«»\n]*(?:«[^»]+»)?[^\.]{10,}",
-            r"Постановление Правительства[^«»\n]*(?:«[^»]+»)?[^\.]{10,}",
-            r"Указ Президента[^«»\n]*(?:«[^»]+»)?[^\.]{10,}",
-        )
-
-        for pattern in law_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                law_name = self.normalize_text(value=match.group())
-                if len(law_name) > 30:
-                    return law_name[:500]
-
-        return None
-
-    def _generate_fallback_id(self, url: str) -> str:
-        """
-        Generate program ID from URL slug as fallback.
-
-        :param url: program URL
-        :return: generated ID or empty string
-        """
-
-        match = re.search(r"/catalog/([a-z0-9\-_]+)/?$", url.lower())
-        if match:
-            slug = match.group(1)
-            if len(slug) > 3:
-                return f"CATALOG-{slug[:30].upper()}"
-
-        return ""
-
-    def _extract_program_tags(self, soup: BeautifulSoup) -> list[str] | None:
-        """
-        Extract program tags/categories from the page.
-
-        :param soup: parsed HTML document
-        :return: list of tags or None
-        """
-
-        tags: list[str] = []
-
-        # primary: extract from tag elements
-        tag_elements = soup.select(self._selectors.DETAIL_TAGS)
-        for elem in tag_elements:
+        for elem in soup.select(self._selectors.DETAIL_TAGS):
             tag_text = self.normalize_text(value=elem.get_text())
-            # exclude level tags from subjects
-            if tag_text and len(tag_text) > 2:
-                lower_text = tag_text.lower()
-                if "федеральн" not in lower_text and "региональн" not in lower_text:
-                    tags.append(tag_text)
+            if not tag_text:
+                continue
 
-        if tags:
-            return tags
+            lower = tag_text.lower()
+            if not any(keyword in lower for keyword in ("действует", "заверш")):
+                continue
 
-        # fallback: search for participant section
-        return self._extract_participants_fallback(soup=soup)
+            end_date = self._extract_date(tag_text)
+
+            if "заверш" in lower:
+                is_active = end_date is not None and end_date >= today
+                return tag_text, is_active
+
+            if end_date and end_date < today:
+                return tag_text, False
+
+            return tag_text, True
+
+        return None, True
+
+    @staticmethod
+    def _extract_date(text: str) -> datetime.date | None:
+        """
+        Parse first date in DD.MM.YYYY format from text.
+
+        :param text: text to scan
+        :return: date object or None
+        """
+
+        match = re.search(r"(\d{2}\.\d{2}\.\d{4})", text)
+        if not match:
+            return None
+
+        try:
+            return datetime.strptime(match.group(1), "%d.%m.%Y").date()
+        except ValueError:
+            return None
+
+    def _extract_participants(self, soup: BeautifulSoup) -> list[str] | None:
+        """
+        Extract participant categories from the dedicated tab.
+
+        :param soup: parsed HTML document
+        :return: list of participant descriptions or None
+        """
+
+        participants: list[str] = []
+
+        participant_panel = soup.select_one(self._selectors.PARTICIPANT_TAB)
+        if participant_panel:
+            for li in participant_panel.find_all("li"):
+                participant = self.normalize_text(value=li.get_text())
+                if 3 < len(participant) < 300:
+                    participants.append(participant)
+
+            if not participants:
+                panel_text = self.normalize_text(
+                    value=participant_panel.get_text(" ", strip=True)
+                )
+                if panel_text:
+                    participants.append(panel_text)
+
+        if not participants:
+            participants = self._extract_participants_fallback(soup=soup) or []
+
+        return participants if participants else None
 
     def _extract_participants_fallback(self, soup: BeautifulSoup) -> list[str] | None:
         """
