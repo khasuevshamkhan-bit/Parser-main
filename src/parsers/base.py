@@ -50,8 +50,10 @@ class BaseParser(ABC):
         tasks = [self._bounded_parse(source) for source in sources]
         results = await asyncio.gather(*tasks)
         allowances = []
+
         for batch in results:
             allowances.extend(batch)
+
         return allowances
 
     async def _bounded_parse(self, source: str) -> list[AllowanceDTO]:

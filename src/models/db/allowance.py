@@ -4,6 +4,7 @@ from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models.db.base import Base
+from src.models.dto.allowances import AllowanceDTO
 
 
 class Allowance(Base):
@@ -20,6 +21,9 @@ class Allowance(Base):
     npa_number: Mapped[str] = mapped_column(String(length=128), nullable=False)
     subjects: Mapped[str | None] = mapped_column(String(length=1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def to_dto(self) -> AllowanceDTO:
+        return AllowanceDTO.model_validate(self)
 
     def __repr__(self) -> str:
         """

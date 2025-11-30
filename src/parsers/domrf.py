@@ -127,7 +127,8 @@ class DomRfParser(BaseParser):
         cleaned_values = [self._normalize_text(value) for value in values if self._normalize_text(value)]
         return cleaned_values or None
 
-    def _find_npa_number(self, text: str) -> str:
+    @staticmethod
+    def _find_npa_number(text: str) -> str:
         """
         Find an NPA number pattern within text.
 
