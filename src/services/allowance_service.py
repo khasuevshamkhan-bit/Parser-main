@@ -1,7 +1,7 @@
 from src.core.exceptions.allowances import AllowanceParsingError, AllowanceValidationError
 from src.models.db.allowance import Allowance
 from src.models.dto.allowances import AllowanceCreateDTO, AllowanceDTO
-from src.parsers.base import BaseParser
+from src.parsers.base import BaseSeleniumParser
 from src.repositories.allowance_repository import AllowanceRepository
 from src.utils.logger import logger
 
@@ -64,11 +64,11 @@ class AllowanceService:
 
         return saved.to_dto()
 
-    async def parse_and_replace(self, parser: BaseParser) -> list[AllowanceDTO]:
+    async def parse_and_replace(self, parser: BaseSeleniumParser) -> list[AllowanceDTO]:
         """
         Run parser and replace stored allowances with parsed results.
 
-        :param parser: parser instance to execute
+        :param parser: Selenium parser instance to execute
         :return: persisted parsed allowances
         """
 
@@ -76,7 +76,7 @@ class AllowanceService:
         logger.info(f"Starting parse_and_replace with {parser_name}")
 
         try:
-            parsed = await parser.run()
+            parsed = await parser.run_async()
         except Exception as e:
             logger.error(f"Parser {parser_name} raised exception: {e}")
             raise AllowanceParsingError(detail=f"Parser failed with error: {e}")

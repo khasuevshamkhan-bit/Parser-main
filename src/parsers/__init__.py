@@ -1,4 +1,4 @@
-from src.parsers.base import BaseParser
+from src.parsers.base import BaseSeleniumParser
 from src.parsers.domrf import DomRfParser
 
-__all__ = ["BaseParser", "DomRfParser"]
+__all__ = ["BaseSeleniumParser", "DomRfParser"]
