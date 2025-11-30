@@ -45,8 +45,9 @@ class DomRfParser(BaseSeleniumParser):
     social support programs with their regulating laws and target categories.
     """
 
-    # catalog URL (punycode for спроси.дом.рф)
-    CATALOG_URL: str = "https://xn--h1alcedd.xn--d1aqf.xn--p1ai/catalog/"
+    # base URL (punycode for спроси.дом.рф)
+    BASE_URL: str = "https://xn--h1alcedd.xn--d1aqf.xn--p1ai"
+    CATALOG_URL: str = f"{BASE_URL}/catalog/"
 
     # domain for URL validation
     _DOMAIN: str = "xn--h1alcedd.xn--d1aqf.xn--p1ai"
@@ -68,6 +69,16 @@ class DomRfParser(BaseSeleniumParser):
         super().__init__()
         self._selectors = CssSelectors()
         self._program_levels: dict[str, str] = {}
+        self._max_items: int | None = None
+
+    def set_max_items(self, limit: int) -> None:
+        """
+        Set maximum number of items to parse.
+
+        :param limit: maximum number of programs to parse
+        """
+
+        self._max_items = limit
 
     def discover_sources(self) -> list[str]:
         """
@@ -122,17 +133,23 @@ class DomRfParser(BaseSeleniumParser):
             if not href or not isinstance(href, str):
                 continue
 
+            # convert relative URL to absolute
+            if href.startswith("/"):
+                full_url = f"{self.BASE_URL}{href}"
+            else:
+                full_url = href
+
             # skip excluded patterns
-            if self._is_excluded_url(url=href):
+            if self._is_excluded_url(url=full_url):
                 continue
 
             # extract program level from card
             level_elem = card.select_one(self._selectors.PROGRAM_LEVEL_BADGE)
             if level_elem:
                 level_text = self.normalize_text(value=level_elem.get_text())
-                self._program_levels[href] = level_text
+                self._program_levels[full_url] = level_text
 
-            urls.append(href)
+            urls.append(full_url)
 
         # deduplicate while preserving order
         seen: set[str] = set()
@@ -141,6 +158,13 @@ class DomRfParser(BaseSeleniumParser):
             if url not in seen:
                 seen.add(url)
                 unique_urls.append(url)
+
+        # apply max_items limit if set
+        if self._max_items is not None:
+            unique_urls = unique_urls[:self._max_items]
+            logger.info(
+                f"[{self._parser_name}] Limited to {self._max_items} items for testing"
+            )
 
         return unique_urls
 

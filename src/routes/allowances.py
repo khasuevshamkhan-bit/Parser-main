@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from src.core.dependencies.allowances import get_allowance_service
 from src.core.dependencies.parsers import get_domrf_parser
@@ -37,13 +37,22 @@ async def create_allowance(
 
 @router.post("/parse/domrf", summary="Parse Dom.rf", response_model=list[AllowanceDTO])
 async def parse_domrf(
+        max_items: int | None = Query(
+            default=None,
+            ge=1,
+            le=1000,
+            description="Maximum number of programs to parse (for testing)",
+        ),
         allowance_service: AllowanceService = Depends(get_allowance_service),
-        parser: DomRfParser = Depends(get_domrf_parser)
+        parser: DomRfParser = Depends(get_domrf_parser),
 ) -> list[AllowanceDTO]:
     """
     Run Dom.rf parser and replace stored allowances.
 
     :return: parsed allowances persisted to storage
     """
+
+    if max_items is not None:
+        parser.set_max_items(limit=max_items)
 
     return await allowance_service.parse_and_replace(parser=parser)
