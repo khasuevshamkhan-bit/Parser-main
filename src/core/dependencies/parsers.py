@@ -5,7 +5,7 @@ def get_domrf_parser() -> DomRfParser:
     """
     Provide Dom.rf parser instance.
 
-    :return: Dom.rf parser
+    :return: configured Dom.rf parser
     """
 
     return DomRfParser()

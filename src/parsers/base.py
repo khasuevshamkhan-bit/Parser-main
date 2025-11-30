@@ -6,13 +6,12 @@ from enum import Enum
 import httpx
 
 from src.models.dto.allowances import AllowanceDTO
+from src.utils.logger import logger
 
 
 class UserAgent(str, Enum):
     """
     User agent options for outgoing HTTP requests.
-
-    :return: enumeration of user agents
     """
 
     CHROME_WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -24,7 +23,8 @@ class BaseParser(ABC):
     """
     Base asynchronous parser with rate limiting and user agent rotation.
 
-    :return: initialized parser instance
+    Provides common infrastructure for web scraping including
+    concurrency control, random delays, and HTTP client management.
     """
 
     min_delay_seconds: float = 0.5
@@ -38,6 +38,7 @@ class BaseParser(ABC):
 
     def __init__(self) -> None:
         self._semaphore = asyncio.Semaphore(self.concurrency_limit)
+        self._parser_name = self.__class__.__name__
 
     async def run(self) -> list[AllowanceDTO]:
         """
@@ -46,46 +47,99 @@ class BaseParser(ABC):
         :return: list of parsed allowances
         """
 
-        sources = await self.fetch_sources()
-        tasks = [self._bounded_parse(source) for source in sources]
-        results = await asyncio.gather(*tasks)
-        allowances = []
+        logger.info(f"[{self._parser_name}] Starting parsing process")
 
-        for batch in results:
-            allowances.extend(batch)
+        try:
+            sources = await self.fetch_sources()
+            logger.info(f"[{self._parser_name}] Discovered {len(sources)} sources to parse")
 
-        return allowances
+            if not sources:
+                logger.warning(f"[{self._parser_name}] No sources found, returning empty list")
+                return []
+
+            for idx, source in enumerate(sources, start=1):
+                logger.debug(f"[{self._parser_name}] Source {idx}: {source}")
+
+            tasks = [self._bounded_parse(source=source) for source in sources]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            allowances: list[AllowanceDTO] = []
+            successful_count = 0
+            failed_count = 0
+
+            for idx, result in enumerate(results):
+                if isinstance(result, Exception):
+                    failed_count += 1
+                    logger.error(
+                        f"[{self._parser_name}] Failed to parse source {idx + 1}: {result}"
+                    )
+                else:
+                    successful_count += 1
+                    allowances.extend(result)
+
+            logger.info(
+                f"[{self._parser_name}] Parsing completed: "
+                f"{successful_count} sources succeeded, {failed_count} failed, "
+                f"{len(allowances)} allowances extracted"
+            )
+
+            return allowances
+
+        except Exception as e:
+            logger.error(f"[{self._parser_name}] Critical error during parsing: {e}")
+            raise
 
     async def _bounded_parse(self, source: str) -> list[AllowanceDTO]:
         """
         Parse a single source URL within concurrency bounds.
 
+        :param source: URL to parse
         :return: allowances found in the source
         """
 
         async with self._semaphore:
-            await self._random_delay()
-            return await self.parse_source(source)
+            delay = await self._random_delay()
+            logger.debug(f"[{self._parser_name}] Parsing {source} (delayed {delay:.2f}s)")
 
-    async def _random_delay(self) -> None:
+            try:
+                result = await self.parse_source(source=source)
+                logger.debug(
+                    f"[{self._parser_name}] Extracted {len(result)} allowances from {source}"
+                )
+                return result
+            except Exception as e:
+                logger.error(f"[{self._parser_name}] Error parsing {source}: {e}")
+                raise
+
+    async def _random_delay(self) -> float:
         """
         Sleep for a random duration to reduce request bursts.
 
-        :return: None
+        :return: actual delay duration in seconds
         """
 
         delay = random.uniform(self.min_delay_seconds, self.max_delay_seconds)
         await asyncio.sleep(delay)
+        return delay
 
-    def _client(self) -> httpx.AsyncClient:
+    def _create_client(self) -> httpx.AsyncClient:
         """
-        Build an HTTP client with a rotated user agent header.
+        Build an HTTP client with browser-like headers.
 
         :return: configured asynchronous HTTP client
         """
 
         agent = random.choice(self.user_agents)
-        headers = {"User-Agent": agent.value}
+        headers = {
+            "User-Agent": agent.value,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Cache-Control": "max-age=0",
+        }
+        logger.debug(f"[{self._parser_name}] Created HTTP client with agent: {agent.name}")
         return httpx.AsyncClient(headers=headers, timeout=20.0, follow_redirects=True)
 
     @abstractmethod
@@ -101,5 +155,6 @@ class BaseParser(ABC):
         """
         Parse allowance data from a source URL.
 
+        :param source: URL to parse
         :return: parsed allowances from the source
         """
