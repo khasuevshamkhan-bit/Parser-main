@@ -7,13 +7,13 @@ This project expects Alembic to connect to MySQL using the connection values pro
    ```bash
    docker compose up -d database
    ```
-2. Run Alembic from the backend container so it reuses the same settings:
+2. Run Alembic from the backend service (service name: `app`, container name: `parser_backend_container`) so it reuses the same settings:
    ```bash
-   docker compose run --rm backend_container alembic revision --autogenerate -m "<message>"
+   docker compose run --rm app alembic revision --autogenerate -m "<message>"
    ```
    or, if the containers are already running:
    ```bash
-   docker compose exec backend_container alembic revision --autogenerate -m "<message>"
+   docker compose exec parser_backend_container alembic revision --autogenerate -m "<message>"
    ```
 
 ## Running Alembic directly on the host
