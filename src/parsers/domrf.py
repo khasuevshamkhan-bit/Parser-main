@@ -374,8 +374,8 @@ class DomRfParser(BaseSeleniumParser):
         return allowances
 
     def _extract_candidates(
-        self,
-        soup: BeautifulSoup,
+            self,
+            soup: BeautifulSoup,
     ) -> list[dict[str, str | list[str]]]:
         """
         Extract raw allowance blocks from parsed HTML.
@@ -442,9 +442,9 @@ class DomRfParser(BaseSeleniumParser):
         return results
 
     def _extract_main_content_allowance(
-        self,
-        soup: BeautifulSoup,
-        source: str,
+            self,
+            soup: BeautifulSoup,
+            source: str,
     ) -> AllowanceDTO | None:
         """
         Try to extract allowance from main page content.

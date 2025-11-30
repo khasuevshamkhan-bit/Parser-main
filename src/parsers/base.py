@@ -253,10 +253,10 @@ class BaseSeleniumParser(ABC):
             return False
 
     def _wait_for_element(
-        self,
-        by: By,
-        value: str,
-        timeout: int | None = None,
+            self,
+            by: By,
+            value: str,
+            timeout: int | None = None,
     ) -> WebElement | None:
         """
         Wait for an element to be present and visible.
@@ -282,10 +282,10 @@ class BaseSeleniumParser(ABC):
             return None
 
     def _wait_for_elements(
-        self,
-        by: By,
-        value: str,
-        timeout: int | None = None,
+            self,
+            by: By,
+            value: str,
+            timeout: int | None = None,
     ) -> list[WebElement]:
         """
         Wait for elements to be present.
@@ -414,9 +414,9 @@ class BaseSeleniumParser(ABC):
         return self._driver.current_url
 
     def _random_delay(
-        self,
-        min_delay: float | None = None,
-        max_delay: float | None = None,
+            self,
+            min_delay: float | None = None,
+            max_delay: float | None = None,
     ) -> None:
         """
         Sleep for a random duration to simulate human behavior.

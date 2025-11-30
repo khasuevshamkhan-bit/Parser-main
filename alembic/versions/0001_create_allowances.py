@@ -3,8 +3,8 @@ Create allowances table.
 
 :return: None
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0001_create_allowances"
 down_revision = None
