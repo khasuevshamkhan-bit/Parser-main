@@ -30,10 +30,11 @@ def upgrade() -> None:
     if "npa_number" in columns:
         op.drop_column("allowances", "npa_number")
 
-    op.add_column(
-        "allowances",
-        sa.Column("validity_period", sa.String(length=128), nullable=True),
-    )
+    if "validity_period" not in columns:
+        op.add_column(
+            "allowances",
+            sa.Column("validity_period", sa.String(length=128), nullable=True),
+        )
 
 
 def downgrade() -> None:
