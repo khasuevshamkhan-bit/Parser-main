@@ -10,6 +10,7 @@ class AllowanceDTO(BaseModel):
     name: str = Field(...)
     npa_number: str = Field(...)
     npa_name: str | None = Field(default=None)
+    level: str | None = Field(default=None, description="Federal or Regional")
     subjects: list[str] | None = Field(default=None)
 
     model_config = ConfigDict(from_attributes=True)
@@ -23,4 +24,5 @@ class AllowanceCreateDTO(BaseModel):
     name: str = Field(...)
     npa_number: str = Field(...)
     npa_name: str | None = Field(default=None)
+    level: str | None = Field(default=None)
     subjects: list[str] | None = Field(default=None)

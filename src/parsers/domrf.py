@@ -1,12 +1,22 @@
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 
 from src.models.dto.allowances import AllowanceDTO
 from src.parsers.base import BaseSeleniumParser
 from src.utils.logger import logger
+
+
+class ProgramLevel(StrEnum):
+    """
+    Program jurisdiction level.
+    """
+
+    FEDERAL = "Федеральная"
+    REGIONAL = "Региональная"
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,11 +25,16 @@ class CssSelectors:
     CSS selectors for dom.rf program cards.
     """
 
-    PROGRAM_TITLE: str = "h1.program-directory__detail-title"
-    PROGRAM_TAGS: str = "div.program-directory__tags-item"
+    # catalog page selectors
+    CATALOG_TITLE: str = ".program-directory__title, h1"
+    PROGRAM_CARD_LINK: str = "a.program-directory__category-item"
+    PROGRAM_LEVEL_BADGE: str = ".program-directory__category-type-item.green.active p"
+
+    # detail page selectors
+    DETAIL_TITLE: str = "h1.program-directory__detail-title"
+    DETAIL_TAGS: str = "div.program-directory__tags-item"
     REGULATION_SECTION: str = "div.information-block-document"
     REGULATION_LINK: str = "a.information-block-document__title"
-    CATALOG_TITLE: str = ".program-directory__title, h1"
 
 
 class DomRfParser(BaseSeleniumParser):
@@ -31,10 +46,16 @@ class DomRfParser(BaseSeleniumParser):
     """
 
     # catalog URL (punycode for спроси.дом.рф)
-    CATALOG_URL: str = "https://xn--80apaohbc3aw9e.xn--d1aqf.xn--p1ai/catalog/"
+    CATALOG_URL: str = "https://xn--h1alcedd.xn--d1aqf.xn--p1ai/catalog/"
 
     # domain for URL validation
-    _DOMAIN: str = "xn--80apaohbc3aw9e.xn--d1aqf.xn--p1ai"
+    _DOMAIN: str = "xn--h1alcedd.xn--d1aqf.xn--p1ai"
+
+    # URL patterns to exclude (region listing pages, not program cards)
+    _EXCLUDED_URL_PATTERNS: tuple[str, ...] = (
+        "/catalog/region-is-",
+        "/catalog/?",
+    )
 
     # regex patterns for law number extraction
     _LAW_NUMBER_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -46,6 +67,7 @@ class DomRfParser(BaseSeleniumParser):
     def __init__(self) -> None:
         super().__init__()
         self._selectors = CssSelectors()
+        self._program_levels: dict[str, str] = {}
 
     def discover_sources(self) -> list[str]:
         """
@@ -69,59 +91,80 @@ class DomRfParser(BaseSeleniumParser):
 
         logger.info(f"[{self._parser_name}] Catalog loaded: {self._get_current_url()}")
 
-        # collect all program card links
-        program_urls = self._collect_program_urls()
+        # collect program cards with their levels
+        program_urls = self._collect_program_cards()
         logger.info(f"[{self._parser_name}] Found {len(program_urls)} program cards")
 
         return program_urls
 
-    def _collect_program_urls(self) -> list[str]:
+    def _collect_program_cards(self) -> list[str]:
         """
-        Collect all program card URLs from the catalog page.
+        Collect program card URLs and their levels from catalog page.
 
         :return: list of unique program URLs
         """
 
-        urls: set[str] = set()
+        urls: list[str] = []
 
-        # scroll to load lazy content
+        # scroll to load all content
         self._scroll_to_bottom()
 
-        # find all links on page
-        links = self._find_elements_safe(by=By.TAG_NAME, value="a")
-        logger.debug(f"[{self._parser_name}] Found {len(links)} total links on page")
+        # parse page source with BeautifulSoup for structured extraction
+        html = self._get_page_source()
+        soup = BeautifulSoup(html, "html.parser")
 
-        for link in links:
-            try:
-                href = link.get_attribute("href")
-                if href and self._is_program_card_url(url=href):
-                    urls.add(href)
-            except Exception:
+        # find all program card links
+        card_links = soup.select(self._selectors.PROGRAM_CARD_LINK)
+        logger.debug(f"[{self._parser_name}] Found {len(card_links)} card elements")
+
+        for card in card_links:
+            href = card.get("href")
+            if not href or not isinstance(href, str):
                 continue
 
-        return list(urls)
+            # skip excluded patterns
+            if self._is_excluded_url(url=href):
+                continue
 
-    def _is_program_card_url(self, url: str) -> bool:
+            # extract program level from card
+            level_elem = card.select_one(self._selectors.PROGRAM_LEVEL_BADGE)
+            if level_elem:
+                level_text = self.normalize_text(value=level_elem.get_text())
+                self._program_levels[href] = level_text
+
+            urls.append(href)
+
+        # deduplicate while preserving order
+        seen: set[str] = set()
+        unique_urls: list[str] = []
+        for url in urls:
+            if url not in seen:
+                seen.add(url)
+                unique_urls.append(url)
+
+        return unique_urls
+
+    def _is_excluded_url(self, url: str) -> bool:
         """
-        Check if URL points to a program card page.
+        Check if URL should be excluded from parsing.
 
-        :param url: URL to validate
-        :return: True if valid program card URL
+        :param url: URL to check
+        :return: True if URL should be excluded
         """
 
-        if not url or self._DOMAIN not in url:
-            return False
+        for pattern in self._EXCLUDED_URL_PATTERNS:
+            if pattern in url:
+                return True
+
+        # must be from correct domain
+        if self._DOMAIN not in url and not url.startswith("/catalog/"):
+            return True
 
         # skip catalog root
         if url.rstrip("/").endswith("/catalog"):
-            return False
+            return True
 
-        # valid program cards have path after /catalog/
-        if "/catalog/" not in url:
-            return False
-
-        path_after_catalog = url.split("/catalog/")[-1].strip("/")
-        return bool(path_after_catalog) and not path_after_catalog.startswith("?")
+        return False
 
     def parse_source(self, source: str) -> list[AllowanceDTO]:
         """
@@ -140,7 +183,7 @@ class DomRfParser(BaseSeleniumParser):
         # wait for main title to appear
         self._wait_for_element(
             by=By.CSS_SELECTOR,
-            value=self._selectors.PROGRAM_TITLE,
+            value=self._selectors.DETAIL_TITLE,
             timeout=10,
         )
 
@@ -152,7 +195,7 @@ class DomRfParser(BaseSeleniumParser):
         if allowance:
             logger.info(
                 f"[{self._parser_name}] Extracted: {allowance.name[:50]}... | "
-                f"NPA: {allowance.npa_number}"
+                f"NPA: {allowance.npa_number} | Level: {allowance.level}"
             )
             return [allowance]
 
@@ -179,12 +222,16 @@ class DomRfParser(BaseSeleniumParser):
         if not npa_number:
             return None
 
+        # get level from pre-extracted data or from page
+        level = self._program_levels.get(url) or self._extract_level_from_page(soup=soup)
+
         subjects = self._extract_program_tags(soup=soup)
 
         return AllowanceDTO(
             name=name,
             npa_number=npa_number,
             npa_name=npa_name,
+            level=level,
             subjects=subjects,
         )
 
@@ -197,7 +244,7 @@ class DomRfParser(BaseSeleniumParser):
         """
 
         # primary: specific title element
-        title_elem = soup.select_one(self._selectors.PROGRAM_TITLE)
+        title_elem = soup.select_one(self._selectors.DETAIL_TITLE)
         if title_elem:
             name = self.normalize_text(value=title_elem.get_text())
             if len(name) > 5:
@@ -211,6 +258,32 @@ class DomRfParser(BaseSeleniumParser):
                 return name
 
         return ""
+
+    def _extract_level_from_page(self, soup: BeautifulSoup) -> str | None:
+        """
+        Extract program level from detail page.
+
+        :param soup: parsed HTML document
+        :return: program level or None
+        """
+
+        # look for level badge on detail page
+        level_elem = soup.select_one(".program-directory__tags-item.active")
+        if level_elem:
+            text = self.normalize_text(value=level_elem.get_text()).lower()
+            if "федеральн" in text:
+                return ProgramLevel.FEDERAL
+            if "региональн" in text:
+                return ProgramLevel.REGIONAL
+
+        # search in page text as fallback
+        page_text = soup.get_text().lower()
+        if "федеральная программа" in page_text:
+            return ProgramLevel.FEDERAL
+        if "региональная программа" in page_text:
+            return ProgramLevel.REGIONAL
+
+        return None
 
     def _extract_regulation_info(self, soup: BeautifulSoup) -> tuple[str, str | None]:
         """
@@ -320,11 +393,14 @@ class DomRfParser(BaseSeleniumParser):
         tags: list[str] = []
 
         # primary: extract from tag elements
-        tag_elements = soup.select(self._selectors.PROGRAM_TAGS)
+        tag_elements = soup.select(self._selectors.DETAIL_TAGS)
         for elem in tag_elements:
             tag_text = self.normalize_text(value=elem.get_text())
+            # exclude level tags from subjects
             if tag_text and len(tag_text) > 2:
-                tags.append(tag_text)
+                lower_text = tag_text.lower()
+                if "федеральн" not in lower_text and "региональн" not in lower_text:
+                    tags.append(tag_text)
 
         if tags:
             return tags

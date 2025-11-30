@@ -48,6 +48,7 @@ class AllowanceService:
         name = self._clean_text(value=payload.name)
         npa_number = self._clean_text(value=payload.npa_number)
         npa_name = self._clean_text(value=payload.npa_name) if payload.npa_name else None
+        level = self._clean_text(value=payload.level) if payload.level else None
         subjects = self._normalize_subjects(subjects=payload.subjects)
 
         if not name or not npa_number:
@@ -58,6 +59,7 @@ class AllowanceService:
             name=name,
             npa_number=npa_number,
             npa_name=npa_name,
+            level=level,
             subjects=subjects,
         )
 
@@ -98,6 +100,7 @@ class AllowanceService:
             name = self._clean_text(value=item.name)
             npa_number = self._clean_text(value=item.npa_number)
             npa_name = self._clean_text(value=item.npa_name) if item.npa_name else None
+            level = self._clean_text(value=item.level) if item.level else None
             subjects = self._normalize_subjects(subjects=item.subjects)
 
             if not name or not npa_number:
@@ -113,6 +116,7 @@ class AllowanceService:
                     name=name,
                     npa_number=npa_number,
                     npa_name=npa_name,
+                    level=level,
                     subjects=subjects,
                 )
             )

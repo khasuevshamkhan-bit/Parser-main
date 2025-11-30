@@ -18,6 +18,7 @@ class Allowance(Base):
     name: Mapped[str] = mapped_column(String(length=512), nullable=False)
     npa_number: Mapped[str] = mapped_column(String(length=128), nullable=False)
     npa_name: Mapped[str | None] = mapped_column(String(length=512), nullable=True)
+    level: Mapped[str | None] = mapped_column(String(length=64), nullable=True)
     subjects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -33,6 +34,7 @@ class Allowance(Base):
             name=self.name,
             npa_number=self.npa_number,
             npa_name=self.npa_name,
+            level=self.level,
             subjects=self.subjects,
         )
 
