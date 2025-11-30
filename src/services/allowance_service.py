@@ -56,7 +56,9 @@ class AllowanceService:
 
         :return: persisted parsed allowances
         """
-        parsed = await parser.run()
+
+        try:
+            parsed = await parser.run()
 
         if not parsed:
             raise AllowanceParsingError
