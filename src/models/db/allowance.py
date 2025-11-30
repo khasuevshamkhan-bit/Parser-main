@@ -16,10 +16,10 @@ class Allowance(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(length=512), nullable=False)
-    npa_number: Mapped[str] = mapped_column(String(length=128), nullable=False)
-    npa_name: Mapped[str | None] = mapped_column(String(length=512), nullable=True)
+    npa_name: Mapped[str] = mapped_column(String(length=512), nullable=False)
     level: Mapped[str | None] = mapped_column(String(length=64), nullable=True)
     subjects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    validity_period: Mapped[str | None] = mapped_column(String(length=128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     def to_dto(self) -> AllowanceDTO:
@@ -32,10 +32,10 @@ class Allowance(Base):
         return AllowanceDTO(
             id=self.id,
             name=self.name,
-            npa_number=self.npa_number,
             npa_name=self.npa_name,
             level=self.level,
             subjects=self.subjects,
+            validity_period=self.validity_period,
         )
 
     def __repr__(self) -> str:
