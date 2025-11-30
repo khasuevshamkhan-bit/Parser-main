@@ -7,14 +7,32 @@ This project expects Alembic to connect to MySQL using the connection values pro
    ```bash
    docker compose up -d database
    ```
-2. Run Alembic from the backend service (service name: `app`, container name: `parser_backend_container`) so it reuses the same settings:
+2. Make sure the app service is up (it runs Alembic on startup):
+   ```bash
+   docker compose up -d app
+   ```
+   > If the app container exits because a migration failed, fix the migration and restart `docker compose up -d app` so the revision state matches the DB.
+3. Run Alembic from the backend service (service name: `app`). Using the service name works even if the container name is `parser_backend_container`:
    ```bash
    docker compose run --rm app alembic revision --autogenerate -m "<message>"
    ```
    or, if the containers are already running:
    ```bash
-   docker compose exec parser_backend_container alembic revision --autogenerate -m "<message>"
+   docker compose exec app alembic revision --autogenerate -m "<message>"
    ```
+4. If you see `Target database is not up to date`, bring the database to the current head before creating a new revision:
+   ```bash
+   docker compose run --rm app alembic upgrade head
+   ```
+
+## One-command helper script
+You can also use the convenience script to create a revision from the project root:
+
+```bash
+scripts/create_revision.sh "<message>"
+```
+
+The script ensures the database is running, applies pending upgrades, and then calls `alembic revision --autogenerate` inside the `app` service. Set `COMPOSE_CMD` if you need to override the docker compose binary (for example, `COMPOSE_CMD="docker-compose" scripts/create_revision.sh "msg"`).
 
 ## Running Alembic directly on the host
 1. Ensure MySQL is running and reachable from your host. For the default docker-compose setup, that usually means `DB_HOST=127.0.0.1` and `DB_PORT=3306`.
