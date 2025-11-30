@@ -57,8 +57,7 @@ class AllowanceService:
         :return: persisted parsed allowances
         """
 
-        try:
-            parsed = await parser.run()
+        parsed = await parser.run()
 
         if not parsed:
             raise AllowanceParsingError
@@ -76,7 +75,7 @@ class AllowanceService:
             allowances.append(Allowance(name=name, npa_number=npa_number, subjects=subjects))
 
         models = await self._repository.replace_all(allowances=allowances)
-        return [self._serialize(model=model) for model in models]
+        return [model.to_dto() for model in models]
 
     @staticmethod
     def _clean_text(value: str) -> str:
