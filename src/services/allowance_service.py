@@ -47,6 +47,7 @@ class AllowanceService:
 
         name = self._clean_text(value=payload.name)
         npa_number = self._clean_text(value=payload.npa_number)
+        npa_name = self._clean_text(value=payload.npa_name) if payload.npa_name else None
         subjects = self._normalize_subjects(subjects=payload.subjects)
 
         if not name or not npa_number:
@@ -56,6 +57,7 @@ class AllowanceService:
         allowance = Allowance(
             name=name,
             npa_number=npa_number,
+            npa_name=npa_name,
             subjects=subjects,
         )
 
@@ -95,6 +97,7 @@ class AllowanceService:
         for idx, item in enumerate(parsed):
             name = self._clean_text(value=item.name)
             npa_number = self._clean_text(value=item.npa_number)
+            npa_name = self._clean_text(value=item.npa_name) if item.npa_name else None
             subjects = self._normalize_subjects(subjects=item.subjects)
 
             if not name or not npa_number:
@@ -109,6 +112,7 @@ class AllowanceService:
                 Allowance(
                     name=name,
                     npa_number=npa_number,
+                    npa_name=npa_name,
                     subjects=subjects,
                 )
             )
@@ -143,12 +147,12 @@ class AllowanceService:
 
         return " ".join(value.split()).strip()
 
-    def _normalize_subjects(self, subjects: list[str] | None) -> str | None:
+    def _normalize_subjects(self, subjects: list[str] | None) -> list[str] | None:
         """
-        Normalize subject collection into storage-friendly string.
+        Normalize subject collection.
 
         :param subjects: list of subject strings or None
-        :return: comma-joined subjects or None
+        :return: cleaned list of subjects or None
         """
 
         if not subjects:
@@ -160,4 +164,4 @@ class AllowanceService:
             if self._clean_text(value=subject)
         ]
 
-        return ",".join(normalized) if normalized else None
+        return normalized if normalized else None

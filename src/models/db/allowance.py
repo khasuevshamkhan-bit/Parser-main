@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models.db.base import Base
@@ -10,8 +10,6 @@ from src.models.dto.allowances import AllowanceDTO
 class Allowance(Base):
     """
     Database entity representing a social support allowance.
-
-    :return: persisted allowance row
     """
 
     __tablename__ = "allowances"
@@ -19,11 +17,24 @@ class Allowance(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(length=512), nullable=False)
     npa_number: Mapped[str] = mapped_column(String(length=128), nullable=False)
-    subjects: Mapped[str | None] = mapped_column(String(length=1024), nullable=True)
+    npa_name: Mapped[str | None] = mapped_column(String(length=512), nullable=True)
+    subjects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     def to_dto(self) -> AllowanceDTO:
-        return AllowanceDTO.model_validate(self)
+        """
+        Convert database model to DTO.
+
+        :return: DTO representation of the allowance
+        """
+
+        return AllowanceDTO(
+            id=self.id,
+            name=self.name,
+            npa_number=self.npa_number,
+            npa_name=self.npa_name,
+            subjects=self.subjects,
+        )
 
     def __repr__(self) -> str:
         """

@@ -1,8 +1,7 @@
 """
 Create allowances table.
-
-:return: None
 """
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -15,8 +14,6 @@ depends_on = None
 def upgrade() -> None:
     """
     Apply allowances table creation.
-
-    :return: None
     """
 
     op.create_table(
@@ -24,7 +21,8 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("name", sa.String(length=512), nullable=False),
         sa.Column("npa_number", sa.String(length=128), nullable=False),
-        sa.Column("subjects", sa.String(length=1024), nullable=True),
+        sa.Column("npa_name", sa.String(length=512), nullable=True),
+        sa.Column("subjects", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
     )
 
@@ -32,8 +30,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     """
     Revert allowances table creation.
-
-    :return: None
     """
 
     op.drop_table("allowances")
