@@ -23,7 +23,12 @@ def upgrade() -> None:
         nullable=False,
     )
 
-    op.drop_column("allowances", "npa_number")
+    # Drop npa_number only if it exists to support partially-migrated databases
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("allowances")}
+    if "npa_number" in columns:
+        op.drop_column("allowances", "npa_number")
 
     op.add_column(
         "allowances",
