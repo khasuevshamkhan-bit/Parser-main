@@ -137,7 +137,17 @@ class BaseSeleniumParser(ABC):
         options.set_preference("intl.accept_languages", "ru-RU, ru, en-US, en")
         options.set_preference("general.useragent.override", self._get_user_agent())
 
-        service = FirefoxService(GeckoDriverManager().install())
+        # try system geckodriver first (for Docker), then webdriver-manager
+        import shutil
+        system_geckodriver = shutil.which("geckodriver")
+
+        if system_geckodriver:
+            logger.debug(f"[{self._parser_name}] Using system geckodriver: {system_geckodriver}")
+            service = FirefoxService(executable_path=system_geckodriver)
+        else:
+            logger.debug(f"[{self._parser_name}] Using webdriver-manager for geckodriver")
+            service = FirefoxService(GeckoDriverManager().install())
+
         self._driver = webdriver.Firefox(service=service, options=options)
         self._driver.set_page_load_timeout(self.PAGE_LOAD_TIMEOUT)
 
