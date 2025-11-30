@@ -21,8 +21,8 @@ class DomRfParser(BaseParser):
     KEYWORDS: tuple[str, ...] = ("поддерж", "субсид", "пособ", "ипотек", "льгот")
 
     def __init__(
-        self,
-        base_url: str = "https://xn--d1aqf.xn--p1ai",
+            self,
+            base_url: str = "https://xn--d1aqf.xn--p1ai",
     ) -> None:
         """
         Initialize the Dom.rf parser.
@@ -194,8 +194,8 @@ class DomRfParser(BaseParser):
         return filtered
 
     def _extract_candidates(
-        self,
-        soup: BeautifulSoup,
+            self,
+            soup: BeautifulSoup,
     ) -> list[dict[str, str | list[str]]]:
         """
         Extract raw allowance blocks from the parsed HTML.
