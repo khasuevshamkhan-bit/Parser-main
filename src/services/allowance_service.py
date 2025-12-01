@@ -74,7 +74,7 @@ class AllowanceService:
 
     async def parse_and_replace(self, parser: BaseSeleniumParser) -> list[AllowanceDTO]:
         """
-        Run parser and replace stored allowances with parsed results.
+        Run parser and persist only new allowances based on NPA names.
 
         :param parser: Selenium parser instance to execute
         :return: persisted parsed allowances
@@ -99,6 +99,8 @@ class AllowanceService:
 
         allowances: list[Allowance] = []
         skipped_count = 0
+        duplicate_parsed = 0
+        seen_npa_names: set[str] = set()
 
         for idx, item in enumerate(parsed):
             name = self._clean_text(value=item.name)
@@ -118,6 +120,15 @@ class AllowanceService:
                     f"(name='{name[:30] if name else 'empty'}...', npa='{npa_name}')"
                 )
                 continue
+
+            if npa_name in seen_npa_names:
+                duplicate_parsed += 1
+                logger.info(
+                    f"Skipping duplicate parsed item {idx + 1} with NPA='{npa_name}'"
+                )
+                continue
+
+            seen_npa_names.add(npa_name)
 
             allowances.append(
                 Allowance(
@@ -140,11 +151,30 @@ class AllowanceService:
 
         logger.info(
             f"Prepared {len(allowances)} valid allowances for storage "
-            f"(skipped {skipped_count} invalid)"
+            f"(skipped {skipped_count} invalid, duplicates in payload={duplicate_parsed})"
         )
 
-        models = await self._repository.replace_all(allowances=allowances)
-        logger.info(f"Replaced storage with {len(models)} allowances")
+        existing_npa_names = await self._repository.get_existing_npa_names(
+            npa_names=list(seen_npa_names)
+        )
+
+        new_allowances = [
+            allowance
+            for allowance in allowances
+            if allowance.npa_name not in existing_npa_names
+        ]
+
+        if not new_allowances:
+            logger.warning(
+                "No new allowances to save: all parsed NPAs already exist in storage."
+            )
+            return []
+
+        models = await self._repository.bulk_create(allowances=new_allowances)
+        logger.info(
+            f"Stored {len(models)} new allowances "
+            f"(skipped existing in DB={len(existing_npa_names)})"
+        )
 
         return [model.to_dto() for model in models]
 
