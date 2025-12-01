@@ -1,6 +1,6 @@
 # Running Alembic migrations and revisions
 
-This project expects Alembic to connect to MySQL using the connection values provided via environment variables. If `alembic revision --autogenerate` fails, make sure the database is reachable and the env vars are set.
+This project expects Alembic to connect to MySQL using the connection values provided via env variables. If `alembic revision --autogenerate` fails, make sure the database is reachable and the env vars are set.
 
 ## Quick start inside Docker
 1. Start the database container:
