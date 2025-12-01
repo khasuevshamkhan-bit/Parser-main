@@ -46,21 +46,25 @@ class AllowanceService:
         logger.debug(f"Creating allowance: name='{payload.name[:50]}...'")
 
         name = self._clean_text(value=payload.name)
-        npa_number = self._clean_text(value=payload.npa_number)
         npa_name = self._clean_text(value=payload.npa_name) if payload.npa_name else None
         level = self._clean_text(value=payload.level) if payload.level else None
         subjects = self._normalize_subjects(subjects=payload.subjects)
+        validity_period = (
+            self._clean_text(value=payload.validity_period)
+            if payload.validity_period
+            else None
+        )
 
-        if not name or not npa_number:
-            logger.error("Allowance creation failed: missing name or NPA number")
-            raise AllowanceValidationError("Allowance name and NPA number are required.")
+        if not name or not npa_name:
+            logger.error("Allowance creation failed: missing name or NPA text")
+            raise AllowanceValidationError("Allowance name and NPA description are required.")
 
         allowance = Allowance(
             name=name,
-            npa_number=npa_number,
             npa_name=npa_name,
             level=level,
             subjects=subjects,
+            validity_period=validity_period,
         )
 
         saved = await self._repository.create(allowance=allowance)
@@ -98,26 +102,30 @@ class AllowanceService:
 
         for idx, item in enumerate(parsed):
             name = self._clean_text(value=item.name)
-            npa_number = self._clean_text(value=item.npa_number)
             npa_name = self._clean_text(value=item.npa_name) if item.npa_name else None
             level = self._clean_text(value=item.level) if item.level else None
             subjects = self._normalize_subjects(subjects=item.subjects)
+            validity_period = (
+                self._clean_text(value=item.validity_period)
+                if item.validity_period
+                else None
+            )
 
-            if not name or not npa_number:
+            if not name or not npa_name:
                 skipped_count += 1
                 logger.warning(
                     f"Skipping parsed item {idx + 1}: missing required fields "
-                    f"(name='{name[:30] if name else 'empty'}...', npa='{npa_number}')"
+                    f"(name='{name[:30] if name else 'empty'}...', npa='{npa_name}')"
                 )
                 continue
 
             allowances.append(
                 Allowance(
                     name=name,
-                    npa_number=npa_number,
                     npa_name=npa_name,
                     level=level,
                     subjects=subjects,
+                    validity_period=validity_period,
                 )
             )
 

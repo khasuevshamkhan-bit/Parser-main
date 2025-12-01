@@ -8,10 +8,10 @@ class AllowanceDTO(BaseModel):
 
     id: int | None = Field(default=None)
     name: str = Field(...)
-    npa_number: str = Field(...)
-    npa_name: str | None = Field(default=None)
+    npa_name: str = Field(...)
     level: str | None = Field(default=None, description="Federal or Regional")
     subjects: list[str] | None = Field(default=None)
+    validity_period: str | None = Field(default=None)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,7 +22,7 @@ class AllowanceCreateDTO(BaseModel):
     """
 
     name: str = Field(...)
-    npa_number: str = Field(...)
-    npa_name: str | None = Field(default=None)
+    npa_name: str = Field(...)
     level: str | None = Field(default=None)
     subjects: list[str] | None = Field(default=None)
+    validity_period: str | None = Field(default=None)
