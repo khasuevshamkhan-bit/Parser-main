@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Union
 
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
@@ -375,7 +376,7 @@ class DomRfParser(BaseSeleniumParser):
         return None, True
 
     @staticmethod
-    def _extract_date(text: str) -> datetime.date | None:
+    def _extract_date(text: str) -> Union[datetime.date, None]:
         """
         Parse first date in DD.MM.YYYY format from text.
 
