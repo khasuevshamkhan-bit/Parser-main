@@ -61,6 +61,27 @@ class DomRfParser(BaseSeleniumParser):
         "/catalog/?",
     )
 
+    _REGIONAL_KEYWORDS: tuple[str, ...] = (
+        "край",
+        "область",
+        "республика",
+        "округ",
+        "субъект",
+        "московской области",
+        "санкт-петербурга",
+        "севастополя",
+        "г. москвы",
+        "города москвы",
+    )
+
+    _FEDERAL_KEYWORDS: tuple[str, ...] = (
+        "российской федерации",
+        "рф",
+        "федеральн",
+        "правительства рф",
+        "президента российской федерации",
+    )
+
     def __init__(self) -> None:
         super().__init__()
         self._selectors = CssSelectors()
@@ -240,7 +261,9 @@ class DomRfParser(BaseSeleniumParser):
             return None
 
         # get level from pre-extracted data or from page
-        level = self._program_levels.get(url) or self._extract_level_from_page(soup=soup)
+        level = self._resolve_program_level(
+            url=url, soup=soup, name=name, npa_name=npa_name
+        )
 
         validity_period, is_active = self._extract_validity_period(soup=soup)
         if not is_active:
@@ -283,6 +306,32 @@ class DomRfParser(BaseSeleniumParser):
 
         return ""
 
+    def _resolve_program_level(
+        self, url: str, soup: BeautifulSoup, name: str, npa_name: str
+    ) -> str | None:
+        """
+        Determine program level using multiple hints.
+
+        :param url: page URL used for pre-fetched level hints
+        :param soup: parsed HTML document
+        :param name: program name
+        :param npa_name: regulation text
+        :return: normalized level or None if not found
+        """
+
+        hints = [
+            self._normalize_level_text(self._program_levels.get(url)),
+            self._extract_level_from_page(soup=soup),
+            self._detect_level_from_text(text=npa_name),
+            self._detect_level_from_text(text=name),
+        ]
+
+        for level in hints:
+            if level:
+                return level
+
+        return None
+
     def _extract_level_from_page(self, soup: BeautifulSoup) -> str | None:
         """
         Extract program level from detail page.
@@ -294,17 +343,55 @@ class DomRfParser(BaseSeleniumParser):
         # look for level badge on detail page
         level_elem = soup.select_one(".program-directory__tags-item.active")
         if level_elem:
-            text = self.normalize_text(value=level_elem.get_text()).lower()
-            if "федеральн" in text:
-                return ProgramLevel.FEDERAL
-            if "региональн" in text:
-                return ProgramLevel.REGIONAL
+            text = self.normalize_text(value=level_elem.get_text())
+            normalized = self._normalize_level_text(text)
+            if normalized:
+                return normalized
 
         # search in page text as fallback
         page_text = soup.get_text().lower()
-        if "федеральная программа" in page_text:
+        normalized = self._detect_level_from_text(text=page_text)
+        if normalized:
+            return normalized
+
+        return None
+
+    def _normalize_level_text(self, text: str | None) -> ProgramLevel | None:
+        """
+        Normalize raw level text into enum values.
+
+        :param text: raw level text
+        :return: ProgramLevel or None
+        """
+
+        if not text:
+            return None
+
+        lowered = text.lower()
+        if "федерал" in lowered:
             return ProgramLevel.FEDERAL
-        if "региональная программа" in page_text:
+        if "регион" in lowered:
+            return ProgramLevel.REGIONAL
+
+        return None
+
+    def _detect_level_from_text(self, text: str | None) -> ProgramLevel | None:
+        """
+        Infer level using presence of federal or regional markers in text.
+
+        :param text: text to analyze
+        :return: inferred ProgramLevel or None
+        """
+
+        if not text:
+            return None
+
+        lowered = text.lower()
+
+        if any(keyword in lowered for keyword in self._FEDERAL_KEYWORDS):
+            return ProgramLevel.FEDERAL
+
+        if any(keyword in lowered for keyword in self._REGIONAL_KEYWORDS):
             return ProgramLevel.REGIONAL
 
         return None

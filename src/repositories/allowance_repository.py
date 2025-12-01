@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.db.allowance import Allowance
@@ -37,14 +37,32 @@ class AllowanceRepository:
         await self._session.refresh(allowance)
         return allowance
 
-    async def replace_all(self, allowances: list[Allowance]) -> list[Allowance]:
+    async def get_existing_npa_names(self, npa_names: list[str]) -> set[str]:
         """
-        Replace all stored allowances with provided collection.
+        Fetch NPA names that are already stored.
 
+        :param npa_names: list of NPA names to check
+        :return: set of NPA names present in storage
+        """
+
+        if not npa_names:
+            return set()
+
+        statement = select(Allowance.npa_name).where(Allowance.npa_name.in_(npa_names))
+        result = await self._session.execute(statement)
+        return set(result.scalars().all())
+
+    async def bulk_create(self, allowances: list[Allowance]) -> list[Allowance]:
+        """
+        Persist a batch of allowance entities.
+
+        :param allowances: allowances to save
         :return: saved allowance rows
         """
 
-        await self._session.execute(delete(Allowance))
+        if not allowances:
+            return []
+
         self._session.add_all(allowances)
         await self._session.commit()
         for allowance in allowances:
