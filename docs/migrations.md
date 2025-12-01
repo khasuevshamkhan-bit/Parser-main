@@ -34,6 +34,14 @@ scripts/create_revision.sh "<message>"
 
 The script ensures the database is running, applies pending upgrades, and then calls `alembic revision --autogenerate` inside the `app` service. Set `COMPOSE_CMD` if you need to override the docker compose binary (for example, `COMPOSE_CMD="docker-compose" scripts/create_revision.sh "msg"`).
 
+## Если Alembic приходилось удалять
+Чтобы вернуть штатную структуру Alembic, убедитесь, что в проекте присутствуют:
+
+- `alembic.ini` в корне проекта;
+- каталог `alembic/` с файлами `env.py`, `script.py.mako` и подпапкой `versions/`.
+
+В этом репозитории уже лежит готовый шаблон (`alembic/script.py.mako`), так что достаточно обновить код до свежей версии. При необходимости можно переинициализировать служебные файлы командой `alembic init alembic` и потом вернуть содержимое `env.py` из репозитория (оно подключает `src` и берет строку подключения из `settings`).
+
 ## Running Alembic directly on the host
 1. Ensure MySQL is running and reachable from your host. For the default docker-compose setup, that usually means `DB_HOST=127.0.0.1` and `DB_PORT=3306`.
 2. Export the same credentials that the app uses (see `.env`):
