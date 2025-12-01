@@ -2,11 +2,10 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base
 
 from src.config import settings
+from src.models.db.base import Base
 
-Base = declarative_base()
 engine = create_async_engine(url=settings.database.url(), echo=False, future=True)
 SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False, autocommit=False)
 
