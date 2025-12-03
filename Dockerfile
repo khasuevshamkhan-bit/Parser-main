@@ -46,8 +46,7 @@ FROM python-deps AS runtime
 
 WORKDIR /usr/src/app
 ENV PYTHONPATH=/usr/src/app \
-    HF_HOME=/usr/src/app/.cache/huggingface \
-    TRANSFORMERS_CACHE=/usr/src/app/.cache/huggingface/transformers
+    HF_HOME=/usr/src/app/.cache/huggingface
 
 RUN groupadd --system app && useradd --system --gid app --home /usr/src/app app
 
