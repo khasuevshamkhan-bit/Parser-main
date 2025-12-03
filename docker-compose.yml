@@ -26,7 +26,7 @@ services:
     env_file: .env
     environment:
       HF_HOME: /usr/src/app/.cache/huggingface
-      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     entrypoint: ["uvicorn", "src.embedding_app:app", "--host", "0.0.0.0", "--port", "8001"]
     healthcheck:
       test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:8001/health')\nPY"]
@@ -52,7 +52,7 @@ services:
       DB_PORT: 5432
       DB_NAME: ${DB_NAME}
       HF_HOME: /usr/src/app/.cache/huggingface
-      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     ports:
       - "8000:8000"
     # required for Firefox headless mode
