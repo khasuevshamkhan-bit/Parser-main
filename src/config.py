@@ -3,16 +3,27 @@ import os
 from pydantic import BaseModel, Field
 
 
+def _require_env(name: str) -> str:
+    """Fetch a required environment variable or raise a clear error."""
+
+    value = os.getenv(name)
+    if value is None or value == "":
+        raise EnvironmentError(
+            f"Environment variable {name} is required but not set."
+        )
+    return value
+
+
 class DatabaseSettings(BaseModel):
     """
     Database connection settings loaded from environment variables.
     """
 
-    username: str = Field(default_factory=lambda: os.getenv("DB_USER", "postgres"))
-    password: str = Field(default_factory=lambda: os.getenv("DB_PASSWORD", "postgres"))
-    host: str = Field(default_factory=lambda: os.getenv("DB_HOST", "localhost"))
-    port: int = Field(default_factory=lambda: int(os.getenv("DB_PORT", "5432")))
-    name: str = Field(default_factory=lambda: os.getenv("DB_NAME", "allowances"))
+    username: str = Field(default_factory=lambda: _require_env("DB_USER"))
+    password: str = Field(default_factory=lambda: _require_env("DB_PASSWORD"))
+    host: str = Field(default_factory=lambda: _require_env("DB_HOST"))
+    port: int = Field(default_factory=lambda: int(_require_env("DB_PORT")))
+    name: str = Field(default_factory=lambda: _require_env("DB_NAME"))
 
     def url(self) -> str:
         """
@@ -42,19 +53,22 @@ class VectorSettings(BaseModel):
     Parameters for embedding generation and vector storage.
     """
 
-    backend: str = Field(
-        default_factory=lambda: os.getenv("EMBEDDING_BACKEND", "hash")
+    backend: str = Field(default_factory=lambda: _require_env("EMBEDDING_BACKEND"))
+    model_name: str = Field(default_factory=lambda: _require_env("EMBEDDING_MODEL"))
+    dimension: int = Field(default_factory=lambda: int(_require_env("EMBEDDING_DIM")))
+    search_limit: int = Field(
+        default_factory=lambda: int(_require_env("VECTOR_SEARCH_LIMIT"))
     )
-    model_name: str = Field(
-        default_factory=lambda: os.getenv(
-            "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
-        )
+    load_timeout_seconds: float = Field(
+        default_factory=lambda: float(_require_env("EMBEDDING_LOAD_TIMEOUT"))
     )
-    dimension: int = Field(default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "384")))
-    search_limit: int = Field(default_factory=lambda: int(os.getenv("VECTOR_SEARCH_LIMIT", "5")))
-    load_timeout_seconds: float = Field(default_factory=lambda: float(os.getenv("EMBEDDING_LOAD_TIMEOUT", "300")))
-    offline: bool = Field(default_factory=lambda: os.getenv("EMBEDDING_OFFLINE", "true").lower() in {"1", "true", "yes", "on"})
-    local_model_path: str | None = Field(default_factory=lambda: os.getenv("EMBEDDING_LOCAL_MODEL"))
+    offline: bool = Field(
+        default_factory=lambda: _require_env("EMBEDDING_OFFLINE").lower()
+        in {"1", "true", "yes", "on"}
+    )
+    local_model_path: str | None = Field(
+        default_factory=lambda: _require_env("EMBEDDING_LOCAL_MODEL")
+    )
 
 
 class Settings(BaseModel):
