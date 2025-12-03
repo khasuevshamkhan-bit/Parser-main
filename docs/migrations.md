@@ -11,6 +11,7 @@ This project expects Alembic to connect to PostgreSQL using the connection value
    ```bash
    docker compose up -d app
    ```
+   > The FastAPI app also applies migrations during its startup sequence, so a freshly initialized database will be brought to the latest schema automatically.
    > If the app container exits because a migration failed, fix the migration and restart `docker compose up -d app` so the revision state matches the DB.
 3. Run Alembic from the backend service (service name: `app`). Using the service name works even if the container name is `parser_backend_container`:
    ```bash
