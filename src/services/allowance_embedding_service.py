@@ -55,13 +55,14 @@ class AllowanceEmbeddingService:
         for allowance in allowances:
             await self.index_allowance(allowance=allowance)
 
-    async def index_missing(self) -> None:
+    async def index_missing(self) -> int:
         """
         Populate embeddings for allowances that lack vectors.
         """
 
         missing_allowances = await self._embedding_repository.list_allowances_without_embeddings()
         if not missing_allowances:
-            return
+            return 0
 
         await self.index_many(allowances=missing_allowances)
+        return len(missing_allowances)
