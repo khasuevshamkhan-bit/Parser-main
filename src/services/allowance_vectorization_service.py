@@ -50,7 +50,11 @@ class AllowanceVectorizationService:
         if not embedding:
             raise EmbeddingProcessingError(detail="Vectorizer returned an empty embedding.")
 
-        logger.info("User input vectorization completed using model '%s'", self._vectorizer.model_name)
+        logger.info(
+            message=(
+                f"User input vectorization completed using model '{self._vectorizer.model_name}'"
+            )
+        )
         return embedding
 
     async def vectorize_allowances(self, allowance_ids: list[int]) -> AllowanceVectorizeResultDTO:
