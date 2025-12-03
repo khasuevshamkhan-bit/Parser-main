@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import inspect
 import os
 import time
@@ -78,12 +79,6 @@ class E5Vectorizer(Vectorizer):
         self._model: SentenceTransformer | None = None
         self._load_lock = asyncio.Lock()
         self._cache_home = self._resolve_cache_home()
-
-        if load_timeout_seconds <= 0:
-            logger.warning(
-                "Non-positive embedding load timeout configured; applying default timeout "
-                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
-            )
 
         if load_timeout_seconds <= 0:
             logger.warning(
@@ -266,8 +261,9 @@ class E5Vectorizer(Vectorizer):
             )
 
         reporter = _DownloadProgressLogger(model_name=self._model_name)
-
         supports_progress = "progress_callback" in inspect.signature(snapshot_download).parameters
+
+        use_hf_transfer = self._should_use_hf_transfer()
 
         cache_dir = os.path.join(self._cache_home, "hub")
         os.makedirs(cache_dir, exist_ok=True)
@@ -287,6 +283,7 @@ class E5Vectorizer(Vectorizer):
             "local_files_only": bool(offline_flag),
             "resume_download": True,
             "cache_dir": cache_dir,
+            "use_hf_transfer": use_hf_transfer,
         }
 
         if supports_progress:
@@ -309,6 +306,39 @@ class E5Vectorizer(Vectorizer):
         )
 
         return snapshot_path
+
+    def _should_use_hf_transfer(self) -> bool:
+        """
+        Decide whether to enable optional hf_transfer acceleration.
+
+        Returns
+        -------
+        Flag indicating whether hf_transfer can be used safely.
+        """
+
+        transfer_flag = os.getenv("HF_HUB_ENABLE_HF_TRANSFER")
+        if not transfer_flag or transfer_flag in {"0", "false", "False"}:
+            return False
+
+        if self._hf_transfer_available():
+            return True
+
+        logger.warning(
+            "Fast download using 'hf_transfer' requested but package is unavailable; falling back to standard download."
+        )
+        return False
+
+    @staticmethod
+    def _hf_transfer_available() -> bool:
+        """
+        Determine whether the hf_transfer package can be imported.
+
+        Returns
+        -------
+        Flag indicating availability of hf_transfer.
+        """
+
+        return importlib.util.find_spec("hf_transfer") is not None
 
     def _resolve_cache_home(self) -> str:
         """
