@@ -46,7 +46,8 @@ FROM python-deps AS runtime
 
 WORKDIR /usr/src/app
 ENV PYTHONPATH=/usr/src/app \
-    HF_HOME=/var/cache/huggingface
+    HF_HOME=/usr/src/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/usr/src/app/.cache/huggingface/transformers
 
 RUN groupadd --system app && useradd --system --gid app --home /usr/src/app app
 
@@ -56,8 +57,8 @@ COPY main.py ./
 COPY src ./src
 COPY scripts ./scripts
 
-RUN mkdir -p /var/cache/huggingface \
-    && chown -R app:app /usr/src/app /var/cache/huggingface
+RUN mkdir -p /usr/src/app/.cache/huggingface \
+    && chown -R app:app /usr/src/app
 
 USER app
 

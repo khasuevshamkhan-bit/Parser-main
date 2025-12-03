@@ -5,7 +5,6 @@ import time
 from abc import ABC, abstractmethod
 
 from huggingface_hub import snapshot_download
-from huggingface_hub.constants import HF_HUB_CACHE
 from sentence_transformers import SentenceTransformer
 
 from src.utils.logger import logger
@@ -24,6 +23,10 @@ class Vectorizer(ABC):
     def model_name(self) -> str:
         """
         Return the underlying model identifier.
+
+        Returns
+        -------
+        Model identifier.
         """
 
     @property
@@ -31,18 +34,35 @@ class Vectorizer(ABC):
     def dimension(self) -> int:
         """
         Return the expected embedding dimensionality.
+
+        Returns
+        -------
+        Embedding dimensionality.
         """
 
     @abstractmethod
     async def embed_text(self, text: str) -> list[float]:
         """
         Generate an embedding for the provided text.
+
+        Parameters
+        ----------
+        text
+            Source text to encode.
+
+        Returns
+        -------
+        Normalized embedding vector.
         """
 
     @abstractmethod
     async def warm_up(self) -> None:
         """
         Ensure the underlying model is fully loaded and ready.
+
+        Returns
+        -------
+        No return value.
         """
 
 
@@ -57,6 +77,13 @@ class E5Vectorizer(Vectorizer):
         self._load_timeout_seconds = self._resolve_timeout(configured_timeout=load_timeout_seconds)
         self._model: SentenceTransformer | None = None
         self._load_lock = asyncio.Lock()
+        self._cache_home = self._resolve_cache_home()
+
+        if load_timeout_seconds <= 0:
+            logger.warning(
+                "Non-positive embedding load timeout configured; applying default timeout "
+                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
+            )
 
         if load_timeout_seconds <= 0:
             logger.warning(
@@ -78,6 +105,15 @@ class E5Vectorizer(Vectorizer):
 
         The text is trimmed before encoding. Returns an empty list when the
         cleaned content is empty.
+
+        Parameters
+        ----------
+        text
+            Source text to encode.
+
+        Returns
+        -------
+        Normalized embedding vector.
         """
 
         cleaned = text.strip()
@@ -103,6 +139,10 @@ class E5Vectorizer(Vectorizer):
     async def warm_up(self) -> None:
         """
         Load the embedding model proactively during application startup.
+
+        Returns
+        -------
+        No return value.
         """
 
         await self._ensure_model_loaded()
@@ -114,6 +154,15 @@ class E5Vectorizer(Vectorizer):
 
         A non-positive configured timeout is replaced with a safe default to
         avoid unbounded waits when remote model downloads hang.
+
+        Parameters
+        ----------
+        configured_timeout
+            Timeout requested by configuration.
+
+        Returns
+        -------
+        Timeout used for model initialization.
         """
 
         if configured_timeout > 0:
@@ -124,6 +173,10 @@ class E5Vectorizer(Vectorizer):
     async def _ensure_model_loaded(self) -> SentenceTransformer:
         """
         Lazily load the embedding model with optional timeout protection.
+
+        Returns
+        -------
+        Loaded embedding model.
         """
 
         if self._model:
@@ -144,7 +197,7 @@ class E5Vectorizer(Vectorizer):
             progress_task: asyncio.Task | None = None
 
             logger.info(
-                f"Preparing model files for '{self._model_name}' using cache directory '{HF_HUB_CACHE}'."
+                f"Preparing model files for '{self._model_name}' using cache directory '{self._cache_home}'."
             )
 
             try:
@@ -200,6 +253,10 @@ class E5Vectorizer(Vectorizer):
     async def _download_model_snapshot(self) -> str:
         """
         Ensure model artifacts are available locally and emit detailed progress logs.
+
+        Returns
+        -------
+        Filesystem path of the downloaded model snapshot.
         """
 
         offline_flag = os.getenv("HF_HUB_OFFLINE") or os.getenv("TRANSFORMERS_OFFLINE")
@@ -212,8 +269,11 @@ class E5Vectorizer(Vectorizer):
 
         supports_progress = "progress_callback" in inspect.signature(snapshot_download).parameters
 
+        cache_dir = os.path.join(self._cache_home, "hub")
+        os.makedirs(cache_dir, exist_ok=True)
+
         logger.info(
-            f"Starting snapshot download for '{self._model_name}' to cache '{HF_HUB_CACHE}'."
+            f"Starting snapshot download for '{self._model_name}' to cache '{cache_dir}'."
         )
 
         if not supports_progress:
@@ -226,6 +286,7 @@ class E5Vectorizer(Vectorizer):
             "repo_id": self._model_name,
             "local_files_only": bool(offline_flag),
             "resume_download": True,
+            "cache_dir": cache_dir,
         }
 
         if supports_progress:
@@ -249,10 +310,52 @@ class E5Vectorizer(Vectorizer):
 
         return snapshot_path
 
+    def _resolve_cache_home(self) -> str:
+        """
+        Resolve a writable Hugging Face cache directory with a safe fallback.
+
+        Preference is given to the HF_HOME environment variable. When the
+        configured path is not writable, the directory is redirected to
+        ``/tmp/huggingface`` to avoid permission failures on startup.
+
+        Returns
+        -------
+        Path to the resolved cache directory.
+        """
+
+        configured_home = os.getenv("HF_HOME") or os.path.join(
+            os.path.expanduser("~"),
+            ".cache",
+            "huggingface",
+        )
+        candidates = [configured_home, "/tmp/huggingface"]
+
+        for path in candidates:
+            try:
+                os.makedirs(path, exist_ok=True)
+                test_path = os.path.join(path, ".write_test")
+                with open(test_path, "w", encoding="utf-8") as handle:
+                    handle.write("ok")
+                os.remove(test_path)
+                os.environ["HF_HOME"] = path
+                os.environ["TRANSFORMERS_CACHE"] = os.path.join(path, "transformers")
+                return path
+            except OSError:
+                logger.warning(
+                    f"Cache directory '{path}' is not writable; attempting fallback.",
+                )
+
+        raise RuntimeError("No writable Hugging Face cache directory available.")
+
 
 class _DownloadProgressLogger:
     """
     Helper to log download progress with percentages and throughput.
+
+    Parameters
+    ----------
+    model_name: str
+        Identifier of the model being downloaded.
     """
 
     def __init__(self, model_name: str) -> None:
@@ -264,6 +367,17 @@ class _DownloadProgressLogger:
         self._total_bytes: int | None = None
 
     def __call__(self, current_bytes: int, total_bytes: int) -> None:
+        """
+        Emit progress metrics for the current download state.
+
+        Parameters
+        ----------
+        current_bytes
+            Number of bytes downloaded so far.
+        total_bytes
+            Total payload size if known.
+        """
+
         self._total_bytes = total_bytes if total_bytes > 0 else None
         now = time.monotonic()
         elapsed_since_last = now - self._last_logged_time
@@ -295,6 +409,14 @@ class _DownloadProgressLogger:
         self._last_logged_percent = percent
 
     def log_final(self) -> None:
+        """
+        Log completion metrics once the download finishes.
+
+        Returns
+        -------
+        No return value.
+        """
+
         if self._total_bytes is None:
             return
 
@@ -307,18 +429,61 @@ class _DownloadProgressLogger:
         )
 
     def _calculate_percent(self, current_bytes: int) -> float:
+        """
+        Convert the current byte offset into a percentage.
+
+        Parameters
+        ----------
+        current_bytes
+            Number of bytes downloaded so far.
+
+        Returns
+        -------
+        Download completion percentage.
+        """
+
         if not self._total_bytes:
             return 0.0
 
         return (current_bytes / self._total_bytes) * 100
 
     def _should_log(self, percent: float, elapsed_since_last: float) -> bool:
+        """
+        Determine whether the current progress event should be emitted.
+
+        Parameters
+        ----------
+        percent
+            Percentage completed.
+        elapsed_since_last
+            Seconds since the last emitted message.
+
+        Returns
+        -------
+        Flag indicating whether to emit the log entry.
+        """
+
         if elapsed_since_last < 1.0 and percent - self._last_logged_percent < 5.0:
             return False
 
         return True
 
     def _calculate_speed(self, current_bytes: int, elapsed_since_last: float) -> float:
+        """
+        Compute instantaneous download speed in megabytes per second.
+
+        Parameters
+        ----------
+        current_bytes
+            Number of bytes downloaded so far.
+        elapsed_since_last
+            Seconds since the prior event.
+
+        Returns
+        -------
+        Instantaneous download speed in megabytes per second.
+        """
+
         delta_bytes = current_bytes - self._last_logged_bytes
         if elapsed_since_last <= 0:
             return 0.0
@@ -326,6 +491,19 @@ class _DownloadProgressLogger:
         return (delta_bytes / 1024 / 1024) / elapsed_since_last
 
     def _bytes_to_megabytes(self, size_in_bytes: int | None) -> float | None:
+        """
+        Convert byte counts to megabytes.
+
+        Parameters
+        ----------
+        size_in_bytes
+            Byte count to convert.
+
+        Returns
+        -------
+        Size converted to megabytes when available.
+        """
+
         if size_in_bytes is None:
             return None
 
