@@ -1,3 +1,5 @@
+import asyncio
+
 from src.core.exceptions.allowances import AllowanceParsingError, AllowanceValidationError
 from src.models.db.allowance import Allowance
 from src.models.dto.allowances import AllowanceCreateDTO, AllowanceDTO
@@ -18,6 +20,7 @@ class AllowanceService:
             self,
             repository: AllowanceRepository,
             embedding_service: AllowanceEmbeddingService | None = None,
+            parse_timeout: float = 180.0,
     ) -> None:
         """
         Initialize the allowance service with persistence and indexing tools.
@@ -25,6 +28,7 @@ class AllowanceService:
 
         self._repository = repository
         self._embedding_service = embedding_service
+        self._parse_timeout = parse_timeout
 
     async def list_allowances(self) -> list[AllowanceDTO]:
         """
@@ -83,7 +87,19 @@ class AllowanceService:
         logger.info(f"Starting parse_and_replace with {parser_name}")
 
         try:
-            parsed = await parser.run_async()
+            parsed = await asyncio.wait_for(
+                parser.run_async(),
+                timeout=self._parse_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "Parser %s exceeded timeout of %.1f seconds",
+                parser_name,
+                self._parse_timeout,
+            )
+            raise AllowanceParsingError(
+                detail="Parser exceeded allowed execution time."
+            ) from exc
         except Exception as e:
             logger.error(f"Parser {parser_name} raised exception: {e}")
             raise AllowanceParsingError(detail=f"Parser failed with error: {e}")
