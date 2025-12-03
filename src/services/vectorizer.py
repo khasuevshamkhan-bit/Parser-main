@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import os
 import time
 from abc import ABC, abstractmethod
@@ -209,16 +210,37 @@ class E5Vectorizer(Vectorizer):
 
         reporter = _DownloadProgressLogger(model_name=self._model_name)
 
+        supports_progress = "progress_callback" in inspect.signature(snapshot_download).parameters
+
         logger.info(
             f"Starting snapshot download for '{self._model_name}' to cache '{HF_HUB_CACHE}'."
         )
 
-        snapshot_path = await asyncio.to_thread(
-            snapshot_download,
-            self._model_name,
-            progress_callback=reporter,
-            local_files_only=bool(offline_flag),
-        )
+        if not supports_progress:
+            logger.warning(
+                "Installed huggingface_hub does not support progress callbacks; "
+                "download progress percentages will be unavailable."
+            )
+
+        snapshot_kwargs = {
+            "repo_id": self._model_name,
+            "local_files_only": bool(offline_flag),
+            "resume_download": True,
+        }
+
+        if supports_progress:
+            snapshot_kwargs["progress_callback"] = reporter
+
+        try:
+            snapshot_path = await asyncio.to_thread(
+                snapshot_download,
+                **snapshot_kwargs,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                f"Snapshot download failed for '{self._model_name}' with error: {exc}"
+            )
+            raise
 
         reporter.log_final()
         logger.info(

@@ -19,11 +19,14 @@ services:
       - db_data_pg16:/var/lib/postgresql/data
 
   embeddings:
-    build: .
+    build:
+      context: .
+      target: runtime
     restart: unless-stopped
     env_file: .env
     environment:
       HF_HOME: /var/cache/huggingface
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
     volumes:
       - hf_cache:/var/cache/huggingface
     entrypoint: ["uvicorn", "src.embedding_app:app", "--host", "0.0.0.0", "--port", "8001"]
@@ -35,7 +38,9 @@ services:
       start_period: 600s
 
   app:
-    build: .
+    build:
+      context: .
+      target: runtime
     depends_on:
       database:
         condition: service_healthy
@@ -49,6 +54,7 @@ services:
       DB_PORT: 5432
       DB_NAME: ${DB_NAME}
       HF_HOME: /var/cache/huggingface
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
     ports:
       - "8000:8000"
     # required for Firefox headless mode
@@ -60,6 +66,12 @@ services:
       - 1.1.1.1
     volumes:
       - hf_cache:/var/cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:8000/health')\nPY"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
 
 volumes:
   db_data_pg16:
