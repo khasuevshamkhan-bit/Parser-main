@@ -85,6 +85,12 @@ class E5Vectorizer(Vectorizer):
                 f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
             )
 
+        if load_timeout_seconds <= 0:
+            logger.warning(
+                "Non-positive embedding load timeout configured; applying default timeout "
+                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
+            )
+
     @property
     def model_name(self) -> str:
         return self._model_name
