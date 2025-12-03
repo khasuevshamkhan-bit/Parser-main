@@ -8,6 +8,7 @@ from src.repositories.allowance_repository import AllowanceRepository
 from src.services.allowance_embedding_service import AllowanceEmbeddingService
 from src.services.embedding_builder import QueryEmbeddingBuilder
 from src.services.vectorizer import Vectorizer
+from src.utils.logger import logger
 
 
 class AllowanceVectorizationService:
@@ -36,6 +37,7 @@ class AllowanceVectorizationService:
         converted into HTTP-friendly embedding exceptions.
         """
 
+        logger.info("Vectorizing user input for semantic workflows")
         normalized = self._query_builder.build_query(user_input=user_input)
         if not normalized:
             raise EmbeddingValidationError(detail="User input is empty after normalization.")
@@ -48,6 +50,7 @@ class AllowanceVectorizationService:
         if not embedding:
             raise EmbeddingProcessingError(detail="Vectorizer returned an empty embedding.")
 
+        logger.info("User input vectorization completed using model '%s'", self._vectorizer.model_name)
         return embedding
 
     async def vectorize_allowances(self, allowance_ids: list[int]) -> AllowanceVectorizeResultDTO:
