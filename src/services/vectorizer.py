@@ -2,16 +2,26 @@ import asyncio
 import importlib.util
 import inspect
 import os
+import shutil
+import socket
+import ssl
 import time
 from abc import ABC, abstractmethod
+from urllib.parse import urlparse
 
+from huggingface_hub import __version__ as hf_version
 from huggingface_hub import snapshot_download
+from packaging import version
 from sentence_transformers import SentenceTransformer
 
 from src.utils.logger import logger
 
 
 DEFAULT_LOAD_TIMEOUT_SECONDS = 300.0
+REQUIRED_FREE_SPACE_BYTES = 2_000_000_000  # ~2GB safeguard for model artifacts
+SOCKET_PROBE_HOST = "huggingface.co"
+SOCKET_PROBE_PORT = 443
+SOCKET_PROBE_TIMEOUT = 5
 
 
 class Vectorizer(ABC):
@@ -76,6 +86,8 @@ class E5Vectorizer(Vectorizer):
                 "Non-positive embedding load timeout configured; applying default timeout "
                 f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
             )
+
+        self._log_environment_overrides()
 
     @property
     def model_name(self) -> str:
@@ -170,8 +182,18 @@ class E5Vectorizer(Vectorizer):
                 f"Preparing model files for '{self._model_name}' using cache directory '{self._cache_home}'."
             )
 
+            offline_flag = self._parse_env_flag(
+                raw_value=os.getenv("HF_HUB_OFFLINE") or os.getenv("TRANSFORMERS_OFFLINE"),
+            )
+            cache_dir = os.path.join(self._cache_home, "hub")
+            await asyncio.to_thread(os.makedirs, cache_dir, 0o777, True)
+            self._run_preflight_checks(offline_flag=offline_flag, cache_dir=cache_dir)
+
             try:
-                model_path = await self._download_model_snapshot()
+                model_path = await self._download_model_snapshot(
+                    offline_flag=offline_flag,
+                    cache_dir=cache_dir,
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception(
                     f"Failed to download model files for '{self._model_name}' before initialization."
@@ -216,28 +238,52 @@ class E5Vectorizer(Vectorizer):
                 if progress_task:
                     await progress_task
 
+            self._validate_model_dimension(model=model)
             self._model = model
-            logger.info(f"Embedding model '{self._model_name}' loaded successfully")
+            logger.info(
+                f"Embedding model '{self._model_name}' loaded successfully with dimension {self._dimension}"
+            )
             return model
 
-    async def _download_model_snapshot(self) -> str:
+    def _run_preflight_checks(self, offline_flag: bool, cache_dir: str) -> None:
+        """
+        Validate environment prerequisites before model download.
+
+        The checks surface common container-specific issues that cause
+        downloads to stall indefinitely, such as missing connectivity,
+        insufficient disk space, or invalid proxy settings.
+
+        :param offline_flag: Whether offline cache-only mode is requested.
+        :param cache_dir: Cache directory for model artifacts.
+        :return: None.
+        """
+
+        self._verify_huggingface_version()
+        self._validate_cache_space(cache_dir=cache_dir)
+        self._cleanup_stale_locks(cache_dir=cache_dir)
+        self._warn_if_token_missing()
+        self._validate_proxy_configuration()
+        if not offline_flag:
+            self._check_dns_resolution()
+            self._check_network_connectivity()
+        else:
+            logger.info(
+                "Offline mode active for embedding download; network checks skipped."
+            )
+
+    async def _download_model_snapshot(self, offline_flag: bool, cache_dir: str) -> str:
         """
         Ensure model artifacts are available locally and emit detailed progress logs.
 
         :return: Filesystem path of the downloaded model snapshot.
         """
 
-        offline_flag = self._parse_env_flag(
-            raw_value=os.getenv("HF_HUB_OFFLINE") or os.getenv("TRANSFORMERS_OFFLINE"),
-        )
         if offline_flag:
             logger.warning(
                 f"Offline mode detected while preparing '{self._model_name}'; relying on local cache."
             )
 
         reporter = _DownloadProgressLogger(model_name=self._model_name)
-        cache_dir = os.path.join(self._cache_home, "hub")
-        os.makedirs(cache_dir, exist_ok=True)
 
         logger.info(
             f"Starting snapshot download for '{self._model_name}' to cache '{cache_dir}'."
@@ -265,20 +311,14 @@ class E5Vectorizer(Vectorizer):
             )
 
         try:
-            snapshot_path = await asyncio.to_thread(
-                snapshot_download,
-                **snapshot_kwargs,
-            )
+            snapshot_path = await self._run_snapshot_download(snapshot_kwargs)
         except TypeError as exc:
             if "use_hf_transfer" in snapshot_kwargs and "use_hf_transfer" in str(exc):
                 logger.warning(
                     "Snapshot download does not accept 'use_hf_transfer'; retrying without explicit toggle."
                 )
                 snapshot_kwargs.pop("use_hf_transfer", None)
-                snapshot_path = await asyncio.to_thread(
-                    snapshot_download,
-                    **snapshot_kwargs,
-                )
+                snapshot_path = await self._run_snapshot_download(snapshot_kwargs)
             else:
                 logger.error(
                     f"Snapshot download failed for '{self._model_name}' with error: {exc}"
@@ -323,6 +363,196 @@ class E5Vectorizer(Vectorizer):
             snapshot_kwargs["progress_callback"] = reporter
 
         return snapshot_kwargs
+
+    def _log_environment_overrides(self) -> None:
+        """
+        Emit diagnostics about environment overrides that affect downloads.
+
+        The goal is to make container misconfiguration visible in logs before
+        the model load begins.
+        """
+
+        proxy_keys = [
+            "http_proxy",
+            "https_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+        ]
+
+        for key in proxy_keys:
+            if key in os.environ:
+                logger.info(f"Environment proxy detected: {key}={os.environ[key]}")
+
+        hf_home = os.getenv("HF_HOME")
+        if hf_home:
+            logger.info(f"HF_HOME override detected: {hf_home}")
+
+        hf_endpoint = os.getenv("HF_ENDPOINT")
+        if hf_endpoint:
+            logger.info(f"HF_ENDPOINT override detected: {hf_endpoint}")
+
+        transfer_flag = self._parse_env_flag(os.getenv("HF_HUB_ENABLE_HF_TRANSFER"))
+        if transfer_flag:
+            logger.info("'hf_transfer' accelerated downloads explicitly enabled via env var")
+
+    def _verify_huggingface_version(self) -> None:
+        """
+        Ensure the installed huggingface_hub version is recent enough.
+
+        Older versions are prone to hanging downloads; versions older than
+        0.22 are rejected with a clear error message.
+        """
+
+        current = version.parse(hf_version)
+        minimum = version.parse("0.22.0")
+        if current < minimum:
+            raise RuntimeError(
+                "huggingface_hub is too old and may hang during downloads; "
+                f"found {hf_version}, require >= {minimum}."
+            )
+
+    def _validate_cache_space(self, cache_dir: str) -> None:
+        """
+        Guard against silent failures when the cache device is full.
+
+        :param cache_dir: Cache directory path.
+        :return: None.
+        """
+
+        try:
+            usage = shutil.disk_usage(cache_dir)
+        except OSError as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Unable to determine free space for cache directory '{cache_dir}'."
+            ) from exc
+
+        if usage.free < REQUIRED_FREE_SPACE_BYTES:
+            raise RuntimeError(
+                "Insufficient disk space for embedding model download; "
+                f"requires at least {REQUIRED_FREE_SPACE_BYTES / 1024 / 1024 / 1024:.1f}GB free."
+            )
+
+    def _cleanup_stale_locks(self, cache_dir: str) -> None:
+        """
+        Remove stale lock and partial download markers that block new fetches.
+
+        :param cache_dir: Cache directory path.
+        :return: None.
+        """
+
+        lock_names = ["*.lock", "*.incomplete", "*.tmp"]
+        for root_dir, _, files in os.walk(cache_dir):
+            for filename in files:
+                if any(filename.endswith(pattern[1:]) for pattern in lock_names):
+                    full_path = os.path.join(root_dir, filename)
+                    try:
+                        os.remove(full_path)
+                        logger.warning(
+                            f"Removed stale download marker blocking model fetch: {full_path}"
+                        )
+                    except OSError:
+                        logger.warning(
+                            f"Failed to remove potential stale marker: {full_path}",
+                        )
+
+    def _warn_if_token_missing(self) -> None:
+        """
+        Provide explicit guidance when no Hugging Face token is configured.
+
+        Private or gated models require authentication; surfacing the missing
+        token early avoids opaque download hangs.
+        """
+
+        if os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN"):
+            return
+
+        if "/" in self._model_name:
+            logger.warning(
+                "No Hugging Face token configured (HF_TOKEN or HUGGINGFACEHUB_API_TOKEN). "
+                "Private or gated models will fail to download."
+            )
+
+    def _validate_proxy_configuration(self) -> None:
+        """
+        Detect obvious proxy misconfigurations that can stall HTTPS connections.
+        """
+
+        for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+            raw_value = os.getenv(key)
+            if not raw_value:
+                continue
+
+            parsed = urlparse(raw_value)
+            if not parsed.scheme or not parsed.netloc:
+                raise RuntimeError(
+                    f"Invalid proxy configuration '{key}={raw_value}'. "
+                    "Expected URL with scheme and host."
+                )
+
+    def _check_dns_resolution(self) -> None:
+        """
+        Confirm the Hugging Face host can be resolved inside the container.
+        """
+
+        try:
+            socket.gethostbyname(SOCKET_PROBE_HOST)
+        except socket.gaierror as exc:
+            raise RuntimeError(
+                f"DNS resolution failed for {SOCKET_PROBE_HOST}; check network or /etc/resolv.conf."
+            ) from exc
+
+    def _check_network_connectivity(self) -> None:
+        """
+        Attempt a short TLS handshake to the Hugging Face endpoint.
+
+        :return: None.
+        """
+
+        context = ssl.create_default_context()
+        try:
+            with socket.create_connection(
+                (SOCKET_PROBE_HOST, SOCKET_PROBE_PORT), timeout=SOCKET_PROBE_TIMEOUT
+            ) as sock:
+                try:
+                    with context.wrap_socket(sock, server_hostname=SOCKET_PROBE_HOST):
+                        logger.info(
+                            f"Connectivity check to {SOCKET_PROBE_HOST}:{SOCKET_PROBE_PORT} succeeded"
+                        )
+                except ssl.SSLError as exc:  # noqa: BLE001
+                    raise RuntimeError(
+                        "TLS handshake to huggingface.co failed; check corporate MITM certs or proxy."
+                    ) from exc
+        except OSError as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Network connection to {SOCKET_PROBE_HOST}:{SOCKET_PROBE_PORT} failed; verify outbound access."
+            ) from exc
+
+    async def _run_snapshot_download(self, snapshot_kwargs: dict[str, object]) -> str:
+        """
+        Execute the snapshot download with the configured timeout applied.
+
+        Applying the same timeout as model initialization ensures startup
+        does not hang indefinitely when the Hugging Face servers are
+        unreachable.
+
+        :param snapshot_kwargs: Prepared keyword arguments for snapshot_download.
+        :return: Path to the downloaded snapshot.
+        """
+
+        download_task = asyncio.to_thread(snapshot_download, **snapshot_kwargs)
+
+        if self._load_timeout_seconds > 0:
+            try:
+                return await asyncio.wait_for(
+                    download_task, timeout=self._load_timeout_seconds
+                )
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    f"Timed out while downloading model files for '{self._model_name}'."
+                ) from exc
+
+        return await download_task
 
     def _should_use_hf_transfer(self) -> bool:
         """
@@ -404,6 +634,56 @@ class E5Vectorizer(Vectorizer):
                 )
 
         raise RuntimeError("No writable Hugging Face cache directory available.")
+
+    def _validate_model_dimension(self, model: SentenceTransformer) -> None:
+        """
+        Ensure the configured embedding dimension matches the underlying model.
+
+        This prevents silent schema mismatches with the pgvector column when
+        switching to a different embedding model (for example, moving from the
+        768-dim E5-base to the 1024-dim multilingual-e5-large-instruct). When no
+        dimension is configured (<=0), the model dimension is adopted so API
+        clients can proceed after updating the database schema accordingly.
+        """
+
+        model_dim = self._determine_model_dimension(model=model)
+        if model_dim is None:
+            return
+
+        if self._dimension <= 0:
+            logger.warning(
+                "Embedding dimension not configured or invalid; adopting model dimension %s.",
+                model_dim,
+            )
+            self._dimension = model_dim
+            return
+
+        if model_dim != self._dimension:
+            raise RuntimeError(
+                "Embedding dimension mismatch: configured %s but model '%s' reports %s. "
+                "Adjust EMBEDDING_DIM and rerun migrations so the pgvector column matches the model.",
+                self._dimension,
+                self._model_name,
+                model_dim,
+            )
+
+    @staticmethod
+    def _determine_model_dimension(model: SentenceTransformer) -> int | None:
+        """
+        Inspect the loaded model to determine its sentence embedding size.
+
+        Returns ``None`` when the information is unavailable so callers can
+        skip validation without failing the load sequence.
+        """
+
+        getter = getattr(model, "get_sentence_embedding_dimension", None)
+        if callable(getter):
+            try:
+                return int(getter())
+            except Exception:  # noqa: BLE001
+                return None
+
+        return None
 
 
 class _DownloadProgressLogger:
