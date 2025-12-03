@@ -31,6 +31,12 @@ class Vectorizer(ABC):
         Generate an embedding for the provided text.
         """
 
+    @abstractmethod
+    async def warm_up(self) -> None:
+        """
+        Ensure the underlying model is fully loaded and ready.
+        """
+
 
 class E5Vectorizer(Vectorizer):
     """
@@ -56,8 +62,8 @@ class E5Vectorizer(Vectorizer):
         """
         Generate an embedding for the provided text.
 
-        :param text: raw text to encode into a dense vector
-        :return: embedding vector with the configured dimensionality
+        The text is trimmed before encoding. Returns an empty list when the
+        cleaned content is empty.
         """
 
         cleaned = text.strip()
@@ -80,31 +86,58 @@ class E5Vectorizer(Vectorizer):
 
         return vector
 
+    async def warm_up(self) -> None:
+        """
+        Load the embedding model proactively during application startup.
+        """
+
+        await self._ensure_model_loaded()
+
     async def _ensure_model_loaded(self) -> SentenceTransformer:
         """
-        Lazily load the embedding model with timeout protection.
-
-        :return: initialized sentence transformer model
+        Lazily load the embedding model with optional timeout protection.
         """
 
         if self._model:
+            logger.info(f"Embedding model '{self._model_name}' already loaded, reusing instance")
             return self._model
 
         async with self._load_lock:
             if self._model:
+                logger.info(f"Embedding model '{self._model_name}' already loaded, reusing instance")
                 return self._model
 
+            timeout = self._load_timeout_seconds
             logger.info(
-                "Loading embedding model '%s' with timeout %.1fs",
-                self._model_name,
-                self._load_timeout_seconds,
+                f"Loading embedding model '{self._model_name}' with timeout {timeout:.1f}s"
             )
 
+            progress_stop = asyncio.Event()
+            progress_task: asyncio.Task | None = None
+
+            async def _log_progress() -> None:
+                loop = asyncio.get_running_loop()
+                started = loop.time()
+                while not progress_stop.is_set():
+                    await asyncio.sleep(15)
+                    elapsed = loop.time() - started
+                    if not progress_stop.is_set():
+                        logger.info(
+                            f"Embedding model '{self._model_name}' still loading (elapsed {elapsed:.1f}s)"
+                        )
+
             try:
-                model = await asyncio.wait_for(
-                    asyncio.to_thread(SentenceTransformer, self._model_name),
-                    timeout=self._load_timeout_seconds,
-                )
+                progress_task = asyncio.create_task(_log_progress())
+                if timeout and timeout > 0:
+                    model = await asyncio.wait_for(
+                        asyncio.to_thread(SentenceTransformer, self._model_name),
+                        timeout=timeout,
+                    )
+                else:
+                    model = await asyncio.to_thread(
+                        SentenceTransformer,
+                        self._model_name,
+                    )
             except asyncio.TimeoutError as exc:
                 raise RuntimeError(
                     f"Timed out while loading embedding model '{self._model_name}'."
@@ -113,7 +146,11 @@ class E5Vectorizer(Vectorizer):
                 raise RuntimeError(
                     f"Failed to load embedding model '{self._model_name}'."
                 ) from exc
+            finally:
+                progress_stop.set()
+                if progress_task:
+                    await progress_task
 
             self._model = model
-            logger.info("Embedding model '%s' loaded successfully", self._model_name)
+            logger.info(f"Embedding model '{self._model_name}' loaded successfully")
             return model
