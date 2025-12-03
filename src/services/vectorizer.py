@@ -71,12 +71,6 @@ class E5Vectorizer(Vectorizer):
         self._snapshot_supports_progress = "progress_callback" in signature.parameters
         self._snapshot_accepts_hf_transfer = "use_hf_transfer" in signature.parameters
 
-        if load_timeout_seconds <= 0:
-            logger.warning(
-                "Non-positive embedding load timeout configured; applying default timeout "
-                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
-            )
-
     @property
     def model_name(self) -> str:
         return self._model_name
@@ -252,6 +246,7 @@ class E5Vectorizer(Vectorizer):
             "local_files_only": bool(offline_flag),
             "resume_download": True,
             "cache_dir": cache_dir,
+            "use_hf_transfer": use_hf_transfer,
         }
 
         hf_transfer_enabled = self._should_use_hf_transfer()
