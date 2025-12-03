@@ -1,11 +1,9 @@
 import uvicorn
 from fastapi import FastAPI
-from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse
 
 from src.routes.allowances import router as allowances_router
 from src.routes.embeddings import router as embeddings_router
-from src.core.migrations import run_migrations
 
 app = FastAPI(title="Allowances Parser Service", swagger_ui_parameters={"operationsSorter": "method"})
 app.include_router(router=allowances_router)
@@ -33,6 +31,7 @@ async def healthcheck_head() -> dict[str, str]:
 
     return {"status": "ok"}
 
+
 @app.get("/")
 async def redirect_to_docs() -> RedirectResponse:
     """
@@ -41,6 +40,7 @@ async def redirect_to_docs() -> RedirectResponse:
     :return: redirect response to documentation
     """
     return RedirectResponse("/docs")
+
 
 if __name__ == "__main__":
     uvicorn.run(app="main:app", host="0.0.0.0", port=8000)

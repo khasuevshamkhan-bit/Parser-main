@@ -1,4 +1,5 @@
 from fastapi import Depends
+
 from src.core.dependencies.allowances import get_allowance_repository
 from src.core.dependencies.vector_search import get_allowance_embedding_service, get_vectorizer
 from src.repositories.allowance_repository import AllowanceRepository

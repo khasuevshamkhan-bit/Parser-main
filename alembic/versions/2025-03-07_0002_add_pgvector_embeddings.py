@@ -7,8 +7,8 @@ Create Date: 2025-03-07 00:00:00
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from pgvector.sqlalchemy import Vector
 
 from src.config import settings
