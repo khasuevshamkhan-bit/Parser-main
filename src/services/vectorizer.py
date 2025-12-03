@@ -95,9 +95,10 @@ class E5Vectorizer(Vectorizer):
                 return self._model
 
             logger.info(
-                "Loading embedding model '%s' with timeout %.1fs",
-                self._model_name,
-                self._load_timeout_seconds,
+                message=(
+                    f"Loading embedding model '{self._model_name}' "
+                    f"with timeout {self._load_timeout_seconds:.1f}s"
+                )
             )
 
             try:
@@ -115,5 +116,7 @@ class E5Vectorizer(Vectorizer):
                 ) from exc
 
             self._model = model
-            logger.info("Embedding model '%s' loaded successfully", self._model_name)
+            logger.info(
+                message=f"Embedding model '{self._model_name}' loaded successfully"
+            )
             return model
