@@ -9,7 +9,7 @@ from src.repositories.allowance_embedding_repository import AllowanceEmbeddingRe
 from src.services.allowance_embedding_service import AllowanceEmbeddingService
 from src.services.embedding_builder import AllowanceEmbeddingBuilder, QueryEmbeddingBuilder
 from src.services.vector_search_service import VectorSearchService
-from src.services.vectorizer import E5Vectorizer, Vectorizer
+from src.services.vectorizer import Vectorizer, create_vectorizer
 
 
 @lru_cache
@@ -20,10 +20,13 @@ def get_vectorizer() -> Vectorizer:
     :return: Cached vectorizer instance.
     """
 
-    return E5Vectorizer(
+    return create_vectorizer(
+        backend=settings.vector.backend,
         model_name=settings.vector.model_name,
         dimension=settings.vector.dimension,
         load_timeout_seconds=settings.vector.load_timeout_seconds,
+        offline=settings.vector.offline,
+        local_model_path=settings.vector.local_model_path,
     )
 
 

@@ -10,10 +10,13 @@ allowances.
 2. **Query normalization** – `QueryEmbeddingBuilder` prefixes the text with
    `query:` and collapses whitespace so the embedding model receives a clean
    string. 【F:src/services/embedding_builder.py†L36-L46】
-3. **Vectorization** – `E5Vectorizer` loads the Hugging Face model
-   (configurable via `EMBEDDING_MODEL`) and produces a normalized embedding.
-   Dimension mismatches are now detected up front to avoid silent pgvector
-   errors. 【F:src/services/vectorizer.py†L34-L189】【F:src/services/vectorizer.py†L243-L322】
+3. **Vectorization** – by default a deterministic **hash backend**
+   (`EMBEDDING_BACKEND=hash`) generates normalized vectors fully offline, so
+   local/CI runs never try to download a Hugging Face model. To use a real E5
+   model, set `EMBEDDING_BACKEND=hf` and point `EMBEDDING_LOCAL_MODEL` to a
+   mounted path (or rely on a pre-populated Hugging Face cache). The builder
+   still follows the `query:`/`passage:` convention. Dimension mismatches are
+   detected up front to avoid silent pgvector errors. 【F:src/services/vectorizer.py†L16-L120】【F:src/services/vectorizer.py†L122-L214】
 4. **Storage & indexing** – every `Allowance` is rendered into a single passage
    (`name`, `level`, `legal_basis`, `eligibility`, `validity`) and indexed in
    the `allowance_embeddings` table. 【F:src/services/embedding_builder.py†L14-L33】【F:src/services/allowance_embedding_service.py†L18-L55】
@@ -32,19 +35,24 @@ allowances.
   have vectors. 【F:src/routes/embeddings.py†L54-L63】
 
 ## Choosing a model
-- Default model is set via `EMBEDDING_MODEL` (defaults to
-  `intfloat/multilingual-e5-small`, 384 dims). It is a small, public model with
-  solid Russian coverage and minimal download size, suitable for local testing
-  without extra registration or tokens.
+- **Offline first:** `EMBEDDING_BACKEND=hash` (default) requires no network and
+  produces deterministic vectors for development/CI.
+- **Hugging Face model:** set `EMBEDDING_BACKEND=hf` plus:
+  - `EMBEDDING_MODEL` (defaults to `intfloat/multilingual-e5-small`, 384 dims),
+  - `EMBEDDING_LOCAL_MODEL` pointing to a mounted directory with model files,
+    or pre-fill the HF cache inside the image.
+  - `EMBEDDING_OFFLINE=true` keeps loading strictly local; set to `false` only
+    if downloads are allowed.
 - Set `EMBEDDING_DIM` to the model’s embedding size (for example, `384` for the
-  default, or `1024` for `intfloat/multilingual-e5-large-instruct`).
-- If the configured dimension does not match the loaded model, startup now fails
-  early with a clear message so you can update the `allowance_embeddings`
-  column/migration before serving traffic. 【F:src/services/vectorizer.py†L296-L322】
+  default, or `1024` for `intfloat/multilingual-e5-large-instruct`). On mismatch
+  the vectorizer will fail fast with guidance to update the pgvector column.
 
 ## Operational tips
+- The E5 family requires `query:`/`passage:` prefixes even for non-English text;
+  the builders handle this automatically so callers should only supply raw
+  questionnaire strings or allowance fields.
+- Use `EMBEDDING_BACKEND=hash` for guaranteed offline startup; switch to
+  `hf` only when a local model directory is mounted. The loader will refuse to
+  download models if `EMBEDDING_OFFLINE=true`. 【F:src/services/vectorizer.py†L90-L119】【F:src/services/vectorizer.py†L173-L214】
 - Ensure PostgreSQL has the `vector` extension installed (migration
   `2025-03-07_0002_add_pgvector_embeddings.py`).
-- Keep `HF_TOKEN` configured if you switch to gated/private models.
-- The vectorizer performs network, disk-space, and cache preflight checks to
-  avoid long hangs during model download. 【F:src/services/vectorizer.py†L68-L229】

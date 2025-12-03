@@ -42,6 +42,9 @@ class VectorSettings(BaseModel):
     Parameters for embedding generation and vector storage.
     """
 
+    backend: str = Field(
+        default_factory=lambda: os.getenv("EMBEDDING_BACKEND", "hash")
+    )
     model_name: str = Field(
         default_factory=lambda: os.getenv(
             "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
@@ -50,6 +53,8 @@ class VectorSettings(BaseModel):
     dimension: int = Field(default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "384")))
     search_limit: int = Field(default_factory=lambda: int(os.getenv("VECTOR_SEARCH_LIMIT", "5")))
     load_timeout_seconds: float = Field(default_factory=lambda: float(os.getenv("EMBEDDING_LOAD_TIMEOUT", "300")))
+    offline: bool = Field(default_factory=lambda: os.getenv("EMBEDDING_OFFLINE", "true").lower() in {"1", "true", "yes", "on"})
+    local_model_path: str | None = Field(default_factory=lambda: os.getenv("EMBEDDING_LOCAL_MODEL"))
 
 
 class Settings(BaseModel):
