@@ -65,3 +65,13 @@ The script ensures the database is running, applies pending upgrades, and then c
 - **`ModuleNotFoundError: No module named 'src'`** — set `PYTHONPATH=.` (the Alembic `env.py` also inserts the project root, but the env var avoids IDE/terminal drift).
 - **`OperationalError: Access denied`** — verify `DB_USER`/`DB_PASSWORD` and that MySQL accepts connections from your host.
 - **Duplicate column errors during `upgrade`** — the migrations are written to be idempotent, but if a column already exists, check that you are on the latest code and that your DB schema matches the applied revision history.
+
+## Resetting the Docker database for a clean start
+If you suspect the persistent volume has stale users or credentials, you can safely drop all data and reinitialize Postgres:
+
+```bash
+docker compose down -v  # removes the db_data volume
+docker compose up -d database
+```
+
+The default `.env` uses the built-in `postgres` superuser, so a fresh volume will include the expected role.
