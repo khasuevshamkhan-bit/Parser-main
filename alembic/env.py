@@ -19,7 +19,9 @@ from src.models.db.base import Base  # noqa: E402
 # access to the values within the .ini file in use.
 config = context.config
 
-if config.config_file_name is not None:
+# Respect the `configure_logger` attribute so application-managed logging (for example,
+# uvicorn) is not overridden when migrations are triggered programmatically.
+if config.attributes.get("configure_logger", True) and config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Set sqlalchemy.url from the application settings so migrations use the same database

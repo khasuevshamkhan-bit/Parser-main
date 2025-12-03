@@ -17,6 +17,7 @@ def run_migrations() -> None:
     alembic_cfg = Config(str(project_root / "alembic.ini"))
     alembic_cfg.set_main_option("script_location", str(project_root / "alembic"))
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database.sync_url())
+    alembic_cfg.attributes["configure_logger"] = False
 
     command.upgrade(alembic_cfg, "head")
 

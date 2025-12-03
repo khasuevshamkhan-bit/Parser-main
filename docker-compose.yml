@@ -20,10 +20,10 @@ services:
 
   app:
     build: .
-    container_name: parser_backend_container
     depends_on:
       database:
         condition: service_healthy
+    env_file: .env
     environment:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -39,7 +39,11 @@ services:
       - 8.8.8.8
       - 8.8.4.4
       - 1.1.1.1
-    command: bash -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 volumes:
   db_data_pg16:
