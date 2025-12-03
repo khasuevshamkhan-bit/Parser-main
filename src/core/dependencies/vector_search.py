@@ -21,6 +21,7 @@ def get_vectorizer() -> Vectorizer:
     return E5Vectorizer(
         model_name=settings.vector.model_name,
         dimension=settings.vector.dimension,
+        load_timeout_seconds=settings.vector.load_timeout_seconds,
     )
 
 

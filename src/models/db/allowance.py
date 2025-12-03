@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -20,7 +20,11 @@ class Allowance(Base):
     level: Mapped[str | None] = mapped_column(String(length=64), nullable=True)
     subjects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     validity_period: Mapped[str | None] = mapped_column(String(length=128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(tz=UTC),
+        nullable=False,
+    )
     embedding = relationship(
         argument="AllowanceEmbedding",
         back_populates="allowance",

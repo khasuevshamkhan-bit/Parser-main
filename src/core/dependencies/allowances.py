@@ -10,7 +10,7 @@ from src.services.allowance_service import AllowanceService
 
 async def get_allowance_repository(session: AsyncSession = Depends(get_session)) -> AllowanceRepository:
     """
-    Provide allowance repository bound to a session.
+    Provide allowance repository bound to the current session.
     """
 
     return AllowanceRepository(session=session)
@@ -18,10 +18,20 @@ async def get_allowance_repository(session: AsyncSession = Depends(get_session))
 
 async def get_allowance_service(
         repository: AllowanceRepository = Depends(get_allowance_repository),
+) -> AllowanceService:
+    """
+    Provide allowance service without embedding dependencies.
+    """
+
+    return AllowanceService(repository=repository, embedding_service=None)
+
+
+async def get_allowance_service_with_embeddings(
+        repository: AllowanceRepository = Depends(get_allowance_repository),
         embedding_service: AllowanceEmbeddingService = Depends(get_allowance_embedding_service),
 ) -> AllowanceService:
     """
-    Provide allowance service wired with repository and embedding support.
+    Provide allowance service with embedding support enabled.
     """
 
     return AllowanceService(repository=repository, embedding_service=embedding_service)
