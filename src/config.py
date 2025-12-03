@@ -64,7 +64,7 @@ class VectorSettings(BaseModel):
     )
     offline: bool = Field(
         default_factory=lambda: _require_env("EMBEDDING_OFFLINE").lower()
-        in {"1", "true", "yes", "on"}
+                                in {"1", "true", "yes", "on"}
     )
     local_model_path: str | None = Field(
         default_factory=lambda: _require_env("EMBEDDING_LOCAL_MODEL")

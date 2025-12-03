@@ -94,12 +94,12 @@ class E5Vectorizer(Vectorizer):
     """
 
     def __init__(
-        self,
-        model_name: str,
-        dimension: int,
-        load_timeout_seconds: float,
-        offline: bool,
-        local_model_path: str | None = None,
+            self,
+            model_name: str,
+            dimension: int,
+            load_timeout_seconds: float,
+            offline: bool,
+            local_model_path: str | None = None,
     ) -> None:
         self._model_name = model_name
         self._configured_dimension = dimension
@@ -111,15 +111,13 @@ class E5Vectorizer(Vectorizer):
         self._local_model_path = local_model_path
 
         logger.info(
-            "Embedding model configured",
-            extra={
-                "model": self._model_name,
-                "dimension": self._configured_dimension,
-                "cache_dir": self._cache_dir,
-                "offline": self._offline,
-                "local_model_path": self._local_model_path,
-                "timeout_seconds": self._load_timeout_seconds,
-            },
+            f"Embedding model configured",
+            f"model: {self._model_name}",
+            f"dimension: {self._configured_dimension}",
+            f"cache_dir: {self._cache_dir}",
+            f"offline: {self._offline}",
+            f"local_model_path: {self._local_model_path}",
+            f"timeout_seconds: {self._load_timeout_seconds}",
         )
 
         if load_timeout_seconds <= 0:
@@ -127,8 +125,6 @@ class E5Vectorizer(Vectorizer):
                 "Non-positive embedding load timeout configured; applying default timeout "
                 f"{self._load_timeout_seconds:.1f}s."
             )
-
-        self._log_environment_overrides()
 
     @property
     def model_name(self) -> str:
@@ -271,18 +267,17 @@ class E5Vectorizer(Vectorizer):
 
 
 def create_vectorizer(
-    backend: str,
-    model_name: str,
-    dimension: int,
-    load_timeout_seconds: float,
-    offline: bool,
-    local_model_path: str | None = None,
+        backend: str,
+        model_name: str,
+        dimension: int,
+        load_timeout_seconds: float,
+        offline: bool,
+        local_model_path: str | None = None,
 ) -> Vectorizer:
     normalized_backend = (backend or "").strip().lower()
     if normalized_backend == "hash":
         logger.info(
-            "Using offline hash vectorizer backend",
-            extra={"dimension": dimension},
+            "Using offline hash vectorizer backend"
         )
         return HashVectorizer(dimension=dimension)
 
