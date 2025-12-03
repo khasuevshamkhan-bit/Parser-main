@@ -6,6 +6,9 @@ from sentence_transformers import SentenceTransformer
 from src.utils.logger import logger
 
 
+DEFAULT_LOAD_TIMEOUT_SECONDS = 300.0
+
+
 class Vectorizer(ABC):
     """
     Abstract interface for turning text into dense vectors.
@@ -46,9 +49,15 @@ class E5Vectorizer(Vectorizer):
     def __init__(self, model_name: str, dimension: int, load_timeout_seconds: float) -> None:
         self._model_name = model_name
         self._dimension = dimension
-        self._load_timeout_seconds = load_timeout_seconds
+        self._load_timeout_seconds = self._resolve_timeout(configured_timeout=load_timeout_seconds)
         self._model: SentenceTransformer | None = None
         self._load_lock = asyncio.Lock()
+
+        if load_timeout_seconds <= 0:
+            logger.warning(
+                "Non-positive embedding load timeout configured; applying default timeout "
+                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
+            )
 
     @property
     def model_name(self) -> str:
@@ -92,6 +101,20 @@ class E5Vectorizer(Vectorizer):
         """
 
         await self._ensure_model_loaded()
+
+    @staticmethod
+    def _resolve_timeout(configured_timeout: float) -> float:
+        """
+        Determine the timeout used to guard model initialization.
+
+        A non-positive configured timeout is replaced with a safe default to
+        avoid unbounded waits when remote model downloads hang.
+        """
+
+        if configured_timeout > 0:
+            return configured_timeout
+
+        return DEFAULT_LOAD_TIMEOUT_SECONDS
 
     async def _ensure_model_loaded(self) -> SentenceTransformer:
         """
