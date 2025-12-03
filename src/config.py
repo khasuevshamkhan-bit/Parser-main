@@ -4,9 +4,11 @@ from pydantic import BaseModel, Field
 
 
 def _require_env(name: str) -> str:
-    """Fetch a required environment variable or raise a clear error."""
+    """
+    Fetch a required environment variable or raise a clear error.
+    """
 
-    value = os.getenv(name)
+    value = os.getenv(key=name)
     if value is None or value == "":
         raise EnvironmentError(
             f"Environment variable {name} is required but not set."
@@ -69,6 +71,12 @@ class VectorSettings(BaseModel):
     local_model_path: str | None = Field(
         default_factory=lambda: _require_env("EMBEDDING_LOCAL_MODEL")
     )
+    min_score_threshold: float = Field(default=0.0)
+    search_metric: str = Field(default="cosine")
+    rerank_model_name: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2")
+    rerank_candidates: int = Field(default=20)
+    rerank_top_k: int = Field(default=5)
+    enable_rerank: bool = Field(default=True)
 
 
 class Settings(BaseModel):

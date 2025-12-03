@@ -8,6 +8,7 @@ from src.core.database import get_session
 from src.repositories.allowance_embedding_repository import AllowanceEmbeddingRepository
 from src.services.allowance_embedding_service import AllowanceEmbeddingService
 from src.services.embedding_builder import AllowanceEmbeddingBuilder, QueryEmbeddingBuilder
+from src.services.reranker import CrossEncoderReranker
 from src.services.vector_search_service import VectorSearchService
 from src.services.vectorizer import Vectorizer, create_vectorizer
 
@@ -16,8 +17,6 @@ from src.services.vectorizer import Vectorizer, create_vectorizer
 def get_vectorizer() -> Vectorizer:
     """
     Provide a singleton vectorizer instance for embedding generation.
-
-    :return: Cached vectorizer instance.
     """
 
     return create_vectorizer(
@@ -30,16 +29,26 @@ def get_vectorizer() -> Vectorizer:
     )
 
 
+@lru_cache
+def get_reranker() -> CrossEncoderReranker | None:
+    """
+    Provide a singleton reranker when enabled in configuration.
+    """
+
+    if not settings.vector.enable_rerank:
+        return None
+    return CrossEncoderReranker(
+        model_name=settings.vector.rerank_model_name,
+        load_timeout_seconds=settings.vector.load_timeout_seconds,
+    )
+
+
 async def get_allowance_embedding_service(
         session: AsyncSession = Depends(get_session),
         vectorizer: Vectorizer = Depends(get_vectorizer),
 ) -> AllowanceEmbeddingService:
     """
     Dependency injector for embedding service.
-
-    :param session: Active database session.
-    :param vectorizer: Vectorizer dependency.
-    :return: Configured embedding service.
     """
 
     embedding_repository = AllowanceEmbeddingRepository(session=session)
@@ -54,13 +63,10 @@ async def get_allowance_embedding_service(
 async def get_vector_search_service(
         session: AsyncSession = Depends(get_session),
         vectorizer: Vectorizer = Depends(get_vectorizer),
+        reranker: CrossEncoderReranker | None = Depends(get_reranker),
 ) -> VectorSearchService:
     """
     Dependency injector for semantic search service.
-
-    :param session: Active database session.
-    :param vectorizer: Vectorizer dependency.
-    :return: Configured vector search service.
     """
 
     embedding_repository = AllowanceEmbeddingRepository(session=session)
@@ -70,9 +76,12 @@ async def get_vector_search_service(
         builder=AllowanceEmbeddingBuilder(),
     )
     query_builder = QueryEmbeddingBuilder()
+    document_builder = AllowanceEmbeddingBuilder()
     return VectorSearchService(
         embedding_repository=embedding_repository,
         vectorizer=vectorizer,
         query_builder=query_builder,
         embedding_service=embedding_service,
+        document_builder=document_builder,
+        reranker=reranker,
     )

@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import os
 from abc import ABC, abstractmethod
-from typing import Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -24,24 +23,33 @@ class Vectorizer(ABC):
     @property
     @abstractmethod
     def model_name(self) -> str:
-        """Return the underlying model identifier."""
+        """
+        Return the underlying model identifier.
+        """
 
     @property
     @abstractmethod
     def dimension(self) -> int:
-        """Return the expected embedding dimensionality."""
+        """
+        Return the expected embedding dimensionality.
+        """
 
     @abstractmethod
     async def embed_text(self, text: str) -> list[float]:
-        """Generate an embedding for the provided text."""
+        """
+        Generate an embedding for the provided text.
+        """
 
     @abstractmethod
     async def warm_up(self) -> None:
-        """Ensure the underlying model is fully loaded and ready."""
+        """
+        Ensure the underlying model is fully loaded and ready.
+        """
 
 
 class HashVectorizer(Vectorizer):
-    """Offline-friendly deterministic vectorizer using hashing.
+    """
+    Offline-friendly deterministic vectorizer using hashing.
 
     This backend avoids any network downloads by deriving fixed-size vectors from
     the input text via a seeded NumPy RNG. It is intended for local development
@@ -66,7 +74,7 @@ class HashVectorizer(Vectorizer):
 
         seed_bytes = hashlib.sha256(cleaned.encode("utf-8")).digest()
         seed = int.from_bytes(seed_bytes[:8], "little", signed=False)
-        vector = await asyncio.to_thread(self._generate_vector, seed)
+        vector = await asyncio.to_thread(func=self._generate_vector, seed=seed)
         return vector
 
     def _generate_vector(self, seed: int) -> list[float]:
@@ -88,9 +96,9 @@ class E5Vectorizer(Vectorizer):
     Vectorizer backed by the multilingual E5 model family.
 
     The E5 family expects every query to be prefixed with ``"query: "`` and
-    every document with ``"passage: "`` (even for Russian text). We keep that
-    contract in ``QueryEmbeddingBuilder`` and ``AllowanceEmbeddingBuilder`` so
-    callers only need to pass in raw questionnaire or allowance text.
+    every document with ``"passage: "`` (even for Russian text). Builders keep
+    that contract so callers only need to pass in raw questionnaire or allowance
+    text.
     """
 
     def __init__(
@@ -104,7 +112,7 @@ class E5Vectorizer(Vectorizer):
         self._model_name = model_name
         self._configured_dimension = dimension
         self._load_timeout_seconds = load_timeout_seconds if load_timeout_seconds > 0 else DEFAULT_LOAD_TIMEOUT_SECONDS
-        self._model: Optional[SentenceTransformer] = None
+        self._model: SentenceTransformer | None = None
         self._load_lock = asyncio.Lock()
         self._cache_dir = self._resolve_cache_dir()
         self._offline = offline
@@ -148,13 +156,13 @@ class E5Vectorizer(Vectorizer):
 
         model = await self._ensure_model_loaded()
         vector = await asyncio.to_thread(
-            model.encode,
-            cleaned,
+            func=model.encode,
+            sentences=cleaned,
             normalize_embeddings=True,
             convert_to_numpy=True,
         )
 
-        values = vector.tolist()
+        values = self._normalize_vector(raw_vector=vector)
         if len(values) != self._configured_dimension:
             raise ValueError(
                 "Unexpected embedding size for model '{model}': got {got}, expected {expected}. "
@@ -169,7 +177,9 @@ class E5Vectorizer(Vectorizer):
         return values
 
     async def warm_up(self) -> None:
-        """Load the embedding model proactively during application startup."""
+        """
+        Load the embedding model proactively during application startup.
+        """
 
         await self._ensure_model_loaded()
 
@@ -186,7 +196,7 @@ class E5Vectorizer(Vectorizer):
             )
 
             load_task = asyncio.to_thread(
-                self._load_model,
+                func=self._load_model,
             )
 
             if self._load_timeout_seconds > 0:
@@ -264,6 +274,14 @@ class E5Vectorizer(Vectorizer):
 
     def _sanitize_model_name(self) -> str:
         return self._model_name.replace("/", "__")
+
+    def _normalize_vector(self, raw_vector: list[float] | np.ndarray) -> list[float]:
+        array = np.asarray(a=raw_vector, dtype=np.float64)
+        norm = np.linalg.norm(x=array)
+        if norm == 0:
+            return [0.0] * len(array)
+        normalized = array / norm
+        return normalized.tolist()
 
 
 def create_vectorizer(

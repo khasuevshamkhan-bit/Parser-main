@@ -50,4 +50,4 @@ class VectorSearchResultDTO(BaseModel):
 
     allowance_id: int = Field(..., description="Identifier of the matched allowance")
     allowance_name: str = Field(..., description="Title of the matched allowance")
-    score: float = Field(..., description="Similarity score where lower means closer match")
+    score: float = Field(..., description="Similarity score where higher means closer match")

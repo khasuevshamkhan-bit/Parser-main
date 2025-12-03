@@ -20,7 +20,15 @@ async def list_allowances(
         allowance_service: AllowanceService = Depends(get_allowance_service),
 ) -> list[AllowanceDTO]:
     """
-    Retrieve all stored allowances.
+    Retrieve every allowance currently persisted in storage.
+
+    The endpoint delegates the read operation to the allowance service, which
+    queries the repository for all records and converts them into DTO objects
+    for response serialization.
+
+    :param allowance_service: service that loads allowances from the
+        persistence layer.
+    :return: collection of stored allowances.
     """
 
     return await allowance_service.list_allowances()
@@ -32,7 +40,17 @@ async def create_allowance(
         allowance_service: AllowanceService = Depends(get_allowance_service_with_embeddings),
 ) -> AllowanceDTO:
     """
-    Persist a new allowance.
+    Persist a new allowance and align its embedding.
+
+    The endpoint cleans incoming payload fields, validates required values, and
+    persists the allowance via the service. When embedding support is enabled,
+    the created allowance is immediately indexed so that vector search remains
+    in sync with the primary datastore.
+
+    :param payload: allowance definition to store and index.
+    :param allowance_service: service that validates, persists, and indexes the
+        allowance.
+    :return: newly created allowance with its database identifier.
     """
 
     return await allowance_service.create_allowance(payload=payload)
@@ -50,7 +68,20 @@ async def parse_domrf(
         parser: DomRfParser = Depends(get_domrf_parser),
 ) -> list[AllowanceDTO]:
     """
-    Run Dom.rf parser and replace stored allowances.
+    Parse Dom.rf source data and replace stored allowances with fresh results.
+
+    The endpoint optionally limits how many programs the parser processes, then
+    runs the parser asynchronously with a safety timeout. Successfully parsed
+    allowances replace only missing records in storage, and each persisted
+    allowance is immediately re-indexed to keep embeddings consistent.
+
+    :param max_items: optional cap on programs fetched from Dom.rf for testing
+        or throttling.
+    :param allowance_service: service orchestrating storage updates and
+        embedding synchronization.
+    :param parser: Dom.rf parser instance that scrapes and normalizes source
+        programs.
+    :return: list of newly stored allowances produced by the parse.
     """
 
     if max_items is not None:
@@ -72,7 +103,19 @@ async def vector_search(
         search_service: VectorSearchService = Depends(get_vector_search_service),
 ) -> list[VectorSearchResultDTO]:
     """
-    Run semantic similarity search based on questionnaire text.
+    Execute semantic similarity search backed by synchronized embeddings.
+
+    The endpoint normalizes questionnaire input, ensures embeddings exist for
+    all allowances, builds a query embedding, and queries the vector index with
+    the configured similarity metric. Results are filtered by score, optionally
+    reranked with a cross-encoder, and returned in descending relevance order
+    with allowance identifiers and names.
+
+    :param payload: questionnaire input used to build the query embedding.
+    :param limit: optional cap on the number of matched allowances to return.
+    :param search_service: service that orchestrates embedding lookup, scoring,
+        filtering, and reranking.
+    :return: ordered list of allowance matches with similarity scores.
     """
 
     return await search_service.search(query_text=payload.input, limit=limit)
