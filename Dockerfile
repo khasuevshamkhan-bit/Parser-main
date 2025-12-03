@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     wget \
     ca-certificates \
     firefox-esr \
+    postgresql-client \
     && wget -q "https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER_VERSION}/geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz" -O /tmp/geckodriver.tar.gz \
     && tar -xzf /tmp/geckodriver.tar.gz -C /usr/local/bin \
     && rm /tmp/geckodriver.tar.gz \
@@ -47,7 +48,8 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY main.py ./
 COPY src ./src
+COPY scripts ./scripts
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/usr/src/app/scripts/entrypoint.sh"]

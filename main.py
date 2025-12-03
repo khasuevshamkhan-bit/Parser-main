@@ -8,7 +8,7 @@ app = FastAPI(title="Allowances Parser Service", swagger_ui_parameters={"operati
 app.include_router(router=allowances_router)
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def healthcheck() -> dict[str, str]:
     """
     Health endpoint for monitoring integrations.
