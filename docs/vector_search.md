@@ -33,8 +33,11 @@ allowances.
 
 ## Choosing a model
 - Default model is set via `EMBEDDING_MODEL` (defaults to
-  `intfloat/multilingual-e5-base`). Set `EMBEDDING_DIM` to the model’s embedding
-  size (for example, `1024` for `intfloat/multilingual-e5-large-instruct`).
+  `intfloat/multilingual-e5-small`, 384 dims). It is a small, public model with
+  solid Russian coverage and minimal download size, suitable for local testing
+  without extra registration or tokens.
+- Set `EMBEDDING_DIM` to the model’s embedding size (for example, `384` for the
+  default, or `1024` for `intfloat/multilingual-e5-large-instruct`).
 - If the configured dimension does not match the loaded model, startup now fails
   early with a clear message so you can update the `allowance_embeddings`
   column/migration before serving traffic. 【F:src/services/vectorizer.py†L296-L322】
