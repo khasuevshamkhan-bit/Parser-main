@@ -35,7 +35,11 @@ class VectorSearchService:
 
         return self._default_limit
 
-    async def search(self, query_text: str, limit: int | None = None) -> list[VectorSearchResultDTO]:
+    async def search(
+            self,
+            query_text: str,
+            limit: int | None = None
+    ) -> list[VectorSearchResultDTO]:
         """
         Perform a vector similarity search using questionnaire text.
         """

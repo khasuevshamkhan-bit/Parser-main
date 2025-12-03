@@ -307,7 +307,7 @@ class DomRfParser(BaseSeleniumParser):
         return ""
 
     def _resolve_program_level(
-        self, url: str, soup: BeautifulSoup, name: str, npa_name: str
+            self, url: str, soup: BeautifulSoup, name: str, npa_name: str
     ) -> str | None:
         """
         Determine program level using multiple hints.
@@ -499,7 +499,7 @@ class DomRfParser(BaseSeleniumParser):
 
             if not participants:
                 panel_text = self.normalize_text(
-                    value=participant_panel.get_text(" ", strip=True)
+                    value=participant_panel.get_text(" ")
                 )
                 if panel_text:
                     participants.append(panel_text)

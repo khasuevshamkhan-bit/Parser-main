@@ -4,8 +4,8 @@ from src.core.dependencies.allowances import (
     get_allowance_service,
     get_allowance_service_with_embeddings,
 )
-from src.core.dependencies.vector_search import get_vector_search_service
 from src.core.dependencies.parsers import get_domrf_parser
+from src.core.dependencies.vector_search import get_vector_search_service
 from src.models.dto.allowances import AllowanceCreateDTO, AllowanceDTO
 from src.models.dto.vector_search import InputFormDTO, VectorSearchResultDTO
 from src.parsers.domrf import DomRfParser
@@ -59,7 +59,8 @@ async def parse_domrf(
     return await allowance_service.parse_and_replace(parser=parser)
 
 
-@router.post("/vector-search", summary="Find allowances via semantic similarity", response_model=list[VectorSearchResultDTO])
+@router.post("/vector-search", summary="Find allowances via semantic similarity",
+             response_model=list[VectorSearchResultDTO])
 async def vector_search(
         payload: InputFormDTO,
         limit: int | None = Query(

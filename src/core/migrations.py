@@ -20,4 +20,3 @@ def run_migrations() -> None:
     alembic_cfg.attributes["configure_logger"] = False
 
     command.upgrade(alembic_cfg, "head")
-

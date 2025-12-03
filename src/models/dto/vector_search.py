@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class InputFormDTO(BaseModel):
@@ -7,6 +7,15 @@ class InputFormDTO(BaseModel):
     """
 
     input: str = Field(..., description="Concatenated answers from the user questionnaire")
+
+    @field_validator('input', mode='after')
+    @classmethod
+    def validate_input(cls, value: str) -> str:
+        str_lentgth = len(value)
+        if str_lentgth < 2:
+            raise ValueError(f'User input is too short: {str_lentgth}')
+
+        return value
 
 
 class VectorDTO(BaseModel):

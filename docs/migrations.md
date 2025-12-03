@@ -1,8 +1,10 @@
 # Running Alembic migrations and revisions
 
-This project expects Alembic to connect to PostgreSQL using the connection values provided via env variables. If `alembic revision --autogenerate` fails, make sure the database is reachable and the env vars are set.
+This project expects Alembic to connect to PostgreSQL using the connection values provided via env variables. If
+`alembic revision --autogenerate` fails, make sure the database is reachable and the env vars are set.
 
 ## Quick start inside Docker
+
 1. Start the database container:
    ```bash
    docker compose up -d database
@@ -11,8 +13,10 @@ This project expects Alembic to connect to PostgreSQL using the connection value
    ```bash
    docker compose up -d app
    ```
-   > The backend waits for Postgres, applies migrations once, and then starts uvicorn. If the container exits because a migration failed, fix the migration and restart `docker compose up -d app` so the revision state matches the DB.
-3. Run Alembic from the backend service (service name: `app`). Using the service name works even if the container name is `parser_backend_container`:
+   > The backend waits for Postgres, applies migrations once, and then starts uvicorn. If the container exits because a
+   migration failed, fix the migration and restart `docker compose up -d app` so the revision state matches the DB.
+3. Run Alembic from the backend service (service name: `app`). Using the service name works even if the container name
+   is `parser_backend_container`:
    ```bash
    docker compose run --rm app alembic revision --autogenerate -m "<message>"
    ```
@@ -20,30 +24,39 @@ This project expects Alembic to connect to PostgreSQL using the connection value
    ```bash
    docker compose exec app alembic revision --autogenerate -m "<message>"
    ```
-4. If you see `Target database is not up to date`, bring the database to the current head before creating a new revision:
+4. If you see `Target database is not up to date`, bring the database to the current head before creating a new
+   revision:
    ```bash
    docker compose run --rm app alembic upgrade head
    ```
 
 ## One-command helper script
+
 You can also use the convenience script to create a revision from the project root:
 
 ```bash
 scripts/create_revision.sh "<message>"
 ```
 
-The script ensures the database is running, applies pending upgrades, and then calls `alembic revision --autogenerate` inside the `app` service. Set `COMPOSE_CMD` if you need to override the docker compose binary (for example, `COMPOSE_CMD="docker-compose" scripts/create_revision.sh "msg"`).
+The script ensures the database is running, applies pending upgrades, and then calls `alembic revision --autogenerate`
+inside the `app` service. Set `COMPOSE_CMD` if you need to override the docker compose binary (for example,
+`COMPOSE_CMD="docker-compose" scripts/create_revision.sh "msg"`).
 
 ## Если Alembic приходилось удалять
+
 Чтобы вернуть штатную структуру Alembic, убедитесь, что в проекте присутствуют:
 
 - `alembic.ini` в корне проекта;
 - каталог `alembic/` с файлами `env.py`, `script.py.mako` и подпапкой `versions/`.
 
-В этом репозитории уже лежит готовый шаблон (`alembic/script.py.mako`), так что достаточно обновить код до свежей версии. При необходимости можно переинициализировать служебные файлы командой `alembic init alembic` и потом вернуть содержимое `env.py` из репозитория (оно подключает `src` и берет строку подключения из `settings`).
+В этом репозитории уже лежит готовый шаблон (`alembic/script.py.mako`), так что достаточно обновить код до свежей
+версии. При необходимости можно переинициализировать служебные файлы командой `alembic init alembic` и потом вернуть
+содержимое `env.py` из репозитория (оно подключает `src` и берет строку подключения из `settings`).
 
 ## Running Alembic directly on the host
-1. Ensure PostgreSQL is running and reachable from your host. For the default docker-compose setup, that usually means `DB_HOST=127.0.0.1` and `DB_PORT=5432`.
+
+1. Ensure PostgreSQL is running and reachable from your host. For the default docker-compose setup, that usually means
+   `DB_HOST=127.0.0.1` and `DB_PORT=5432`.
 2. Export the same credentials that the app uses (see `.env`):
    ```bash
    export DB_NAME=...
@@ -62,12 +75,18 @@ The script ensures the database is running, applies pending upgrades, and then c
    ```
 
 ## Common errors
-- **`ModuleNotFoundError: No module named 'src'`** — set `PYTHONPATH=.` (the Alembic `env.py` also inserts the project root, but the env var avoids IDE/terminal drift).
-- **`OperationalError: Access denied`** — verify `DB_USER`/`DB_PASSWORD` and that PostgreSQL accepts connections from your host.
-- **Duplicate column errors during `upgrade`** — the migrations are written to be idempotent, but if a column already exists, check that you are on the latest code and that your DB schema matches the applied revision history.
+
+- **`ModuleNotFoundError: No module named 'src'`** — set `PYTHONPATH=.` (the Alembic `env.py` also inserts the project
+  root, but the env var avoids IDE/terminal drift).
+- **`OperationalError: Access denied`** — verify `DB_USER`/`DB_PASSWORD` and that PostgreSQL accepts connections from
+  your host.
+- **Duplicate column errors during `upgrade`** — the migrations are written to be idempotent, but if a column already
+  exists, check that you are on the latest code and that your DB schema matches the applied revision history.
 
 ## Resetting the Docker database for a clean start
-If you suspect the persistent volume has stale users or credentials, you can safely drop all data and reinitialize Postgres:
+
+If you suspect the persistent volume has stale users or credentials, you can safely drop all data and reinitialize
+Postgres:
 
 ```bash
 docker compose down -v  # removes the db_data_pg16 volume
