@@ -1,11 +1,22 @@
 import uvicorn
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse
 
 from src.routes.allowances import router as allowances_router
+from src.core.migrations import run_migrations
 
 app = FastAPI(title="Allowances Parser Service", swagger_ui_parameters={"operationsSorter": "method"})
 app.include_router(router=allowances_router)
+
+
+@app.on_event("startup")
+async def apply_db_migrations() -> None:
+    """
+    Ensure the database schema is up to date before serving requests.
+    """
+
+    await run_in_threadpool(run_migrations)
 
 
 @app.get("/health")

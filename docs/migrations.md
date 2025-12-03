@@ -1,6 +1,6 @@
 # Running Alembic migrations and revisions
 
-This project expects Alembic to connect to MySQL using the connection values provided via env variables. If `alembic revision --autogenerate` fails, make sure the database is reachable and the env vars are set.
+This project expects Alembic to connect to PostgreSQL using the connection values provided via env variables. If `alembic revision --autogenerate` fails, make sure the database is reachable and the env vars are set.
 
 ## Quick start inside Docker
 1. Start the database container:
@@ -11,6 +11,7 @@ This project expects Alembic to connect to MySQL using the connection values pro
    ```bash
    docker compose up -d app
    ```
+   > The FastAPI app also applies migrations during its startup sequence, so a freshly initialized database will be brought to the latest schema automatically.
    > If the app container exits because a migration failed, fix the migration and restart `docker compose up -d app` so the revision state matches the DB.
 3. Run Alembic from the backend service (service name: `app`). Using the service name works even if the container name is `parser_backend_container`:
    ```bash
@@ -43,14 +44,14 @@ The script ensures the database is running, applies pending upgrades, and then c
 В этом репозитории уже лежит готовый шаблон (`alembic/script.py.mako`), так что достаточно обновить код до свежей версии. При необходимости можно переинициализировать служебные файлы командой `alembic init alembic` и потом вернуть содержимое `env.py` из репозитория (оно подключает `src` и берет строку подключения из `settings`).
 
 ## Running Alembic directly on the host
-1. Ensure MySQL is running and reachable from your host. For the default docker-compose setup, that usually means `DB_HOST=127.0.0.1` and `DB_PORT=3306`.
+1. Ensure PostgreSQL is running and reachable from your host. For the default docker-compose setup, that usually means `DB_HOST=127.0.0.1` and `DB_PORT=5432`.
 2. Export the same credentials that the app uses (see `.env`):
    ```bash
    export DB_NAME=...
    export DB_USER=...
    export DB_PASSWORD=...
    export DB_HOST=127.0.0.1
-   export DB_PORT=3306
+   export DB_PORT=5432
    ```
 3. Set the Python path so `src` can be imported:
    ```bash
@@ -63,5 +64,22 @@ The script ensures the database is running, applies pending upgrades, and then c
 
 ## Common errors
 - **`ModuleNotFoundError: No module named 'src'`** — set `PYTHONPATH=.` (the Alembic `env.py` also inserts the project root, but the env var avoids IDE/terminal drift).
-- **`OperationalError: Access denied`** — verify `DB_USER`/`DB_PASSWORD` and that MySQL accepts connections from your host.
+- **`OperationalError: Access denied`** — verify `DB_USER`/`DB_PASSWORD` and that PostgreSQL accepts connections from your host.
 - **Duplicate column errors during `upgrade`** — the migrations are written to be idempotent, but if a column already exists, check that you are on the latest code and that your DB schema matches the applied revision history.
+
+## Resetting the Docker database for a clean start
+If you suspect the persistent volume has stale users or credentials, you can safely drop all data and reinitialize Postgres:
+
+```bash
+docker compose down -v  # removes the db_data_pg16 volume
+docker compose up -d database
+```
+
+Because the volume name changed to `db_data_pg16`, you will always get a fresh data directory even if an older
+`db_data` volume is still present. If you see it in `docker volume ls`, remove it explicitly:
+
+```bash
+docker volume rm $(docker volume ls -q | grep db_data$) || true
+```
+
+The default `.env` uses the built-in `postgres` superuser, so a fresh volume will include the expected role.
