@@ -60,6 +60,19 @@ class Logger:
 
         self._log(message=message, level=LoggerLevel.error, color=Fore.RED)
 
+    def exception(self, message: str) -> None:
+        """
+        Log an error-level message with the current exception context.
+
+        The traceback of the active exception is appended to aid debugging.
+        """
+
+        import traceback
+
+        formatted_traceback = traceback.format_exc()
+        combined = f"{message}\n{formatted_traceback}" if formatted_traceback else message
+        self._log(message=combined, level=LoggerLevel.error, color=Fore.RED)
+
     def _log(self, message: str, level: LoggerLevel, color: str) -> None:
         """
         Format and print a log message with caller context.

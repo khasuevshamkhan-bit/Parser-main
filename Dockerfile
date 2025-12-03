@@ -29,6 +29,9 @@ FROM system-deps AS python-deps
 
 WORKDIR /usr/src/app
 
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONHASHSEED=0
+
 COPY requirements.txt ./
 
 # pip cache persists between builds
@@ -42,13 +45,22 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 FROM python-deps AS runtime
 
 WORKDIR /usr/src/app
-ENV PYTHONPATH=/usr/src/app
+ENV PYTHONPATH=/usr/src/app \
+    HF_HOME=/usr/src/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/usr/src/app/.cache/huggingface/transformers
+
+RUN groupadd --system app && useradd --system --gid app --home /usr/src/app app
 
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY main.py ./
 COPY src ./src
 COPY scripts ./scripts
+
+RUN mkdir -p /usr/src/app/.cache/huggingface \
+    && chown -R app:app /usr/src/app
+
+USER app
 
 EXPOSE 8000
 
