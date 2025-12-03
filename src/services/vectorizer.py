@@ -71,6 +71,12 @@ class E5Vectorizer(Vectorizer):
         self._snapshot_supports_progress = "progress_callback" in signature.parameters
         self._snapshot_accepts_hf_transfer = "use_hf_transfer" in signature.parameters
 
+        if load_timeout_seconds <= 0:
+            logger.warning(
+                "Non-positive embedding load timeout configured; applying default timeout "
+                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
+            )
+
     @property
     def model_name(self) -> str:
         return self._model_name
@@ -221,7 +227,9 @@ class E5Vectorizer(Vectorizer):
         :return: Filesystem path of the downloaded model snapshot.
         """
 
-        offline_flag = os.getenv("HF_HUB_OFFLINE") or os.getenv("TRANSFORMERS_OFFLINE")
+        offline_flag = self._parse_env_flag(
+            raw_value=os.getenv("HF_HUB_OFFLINE") or os.getenv("TRANSFORMERS_OFFLINE"),
+        )
         if offline_flag:
             logger.warning(
                 f"Offline mode detected while preparing '{self._model_name}'; relying on local cache."
@@ -241,13 +249,11 @@ class E5Vectorizer(Vectorizer):
                 "download progress percentages will be unavailable."
             )
 
-        snapshot_kwargs = {
-            "repo_id": self._model_name,
-            "local_files_only": bool(offline_flag),
-            "resume_download": True,
-            "cache_dir": cache_dir,
-            "use_hf_transfer": use_hf_transfer,
-        }
+        snapshot_kwargs = self._build_snapshot_kwargs(
+            offline_flag=offline_flag,
+            cache_dir=cache_dir,
+            reporter=reporter,
+        )
 
         hf_transfer_enabled = self._should_use_hf_transfer()
         if self._snapshot_accepts_hf_transfer:
@@ -257,9 +263,6 @@ class E5Vectorizer(Vectorizer):
                 "Fast download using 'hf_transfer' requested but installed huggingface_hub "
                 "does not support explicit toggle; relying on environment configuration instead."
             )
-
-        if self._snapshot_supports_progress:
-            snapshot_kwargs["progress_callback"] = reporter
 
         try:
             snapshot_path = await asyncio.to_thread(
@@ -294,6 +297,33 @@ class E5Vectorizer(Vectorizer):
 
         return snapshot_path
 
+    def _build_snapshot_kwargs(
+        self,
+        offline_flag: bool,
+        cache_dir: str,
+        reporter: "_DownloadProgressLogger",
+    ) -> dict[str, object]:
+        """
+        Compose keyword arguments for snapshot download calls.
+
+        :param offline_flag: Indicator for offline cache-only mode.
+        :param cache_dir: Destination cache directory.
+        :param reporter: Progress logger when supported.
+        :return: Dictionary of snapshot_download parameters.
+        """
+
+        snapshot_kwargs: dict[str, object] = {
+            "repo_id": self._model_name,
+            "local_files_only": offline_flag,
+            "resume_download": True,
+            "cache_dir": cache_dir,
+        }
+
+        if self._snapshot_supports_progress:
+            snapshot_kwargs["progress_callback"] = reporter
+
+        return snapshot_kwargs
+
     def _should_use_hf_transfer(self) -> bool:
         """
         Decide whether to enable optional hf_transfer acceleration.
@@ -301,8 +331,10 @@ class E5Vectorizer(Vectorizer):
         :return: Flag indicating whether hf_transfer can be used safely.
         """
 
-        transfer_flag = os.getenv("HF_HUB_ENABLE_HF_TRANSFER")
-        if not transfer_flag or transfer_flag in {"0", "false", "False"}:
+        transfer_flag = self._parse_env_flag(
+            raw_value=os.getenv("HF_HUB_ENABLE_HF_TRANSFER"),
+        )
+        if not transfer_flag:
             return False
 
         if self._hf_transfer_available():
@@ -313,6 +345,21 @@ class E5Vectorizer(Vectorizer):
         )
         os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
         return False
+
+    @staticmethod
+    def _parse_env_flag(raw_value: str | None) -> bool:
+        """
+        Convert common truthy environment encodings to boolean form.
+
+        :param raw_value: Raw environment value to interpret.
+        :return: Parsed boolean flag.
+        """
+
+        if raw_value is None:
+            return False
+
+        normalized = raw_value.strip().lower()
+        return normalized in {"1", "true", "yes", "on"}
 
     @staticmethod
     def _hf_transfer_available() -> bool:
