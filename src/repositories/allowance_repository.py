@@ -7,8 +7,6 @@ from src.models.db.allowance import Allowance
 class AllowanceRepository:
     """
     Repository layer for allowance persistence.
-
-    :return: repository instance bound to a database session
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -17,8 +15,6 @@ class AllowanceRepository:
     async def list_all(self) -> list[Allowance]:
         """
         Retrieve all allowances ordered by creation time.
-
-        :return: list of allowance rows
         """
 
         statement = select(Allowance).order_by(Allowance.created_at.desc())
@@ -28,8 +24,6 @@ class AllowanceRepository:
     async def create(self, allowance: Allowance) -> Allowance:
         """
         Persist a single allowance entity.
-
-        :return: saved allowance row
         """
 
         self._session.add(allowance)
@@ -55,9 +49,6 @@ class AllowanceRepository:
     async def bulk_create(self, allowances: list[Allowance]) -> list[Allowance]:
         """
         Persist a batch of allowance entities.
-
-        :param allowances: allowances to save
-        :return: saved allowance rows
         """
 
         if not allowances:
@@ -68,3 +59,15 @@ class AllowanceRepository:
         for allowance in allowances:
             await self._session.refresh(allowance)
         return allowances
+
+    async def list_by_ids(self, ids: list[int]) -> list[Allowance]:
+        """
+        Retrieve allowances by identifiers while preserving database ordering.
+        """
+
+        if not ids:
+            return []
+
+        statement = select(Allowance).where(Allowance.id.in_(ids))
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())

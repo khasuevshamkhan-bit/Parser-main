@@ -4,10 +4,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse
 
 from src.routes.allowances import router as allowances_router
+from src.routes.embeddings import router as embeddings_router
 from src.core.migrations import run_migrations
 
 app = FastAPI(title="Allowances Parser Service", swagger_ui_parameters={"operationsSorter": "method"})
 app.include_router(router=allowances_router)
+app.include_router(router=embeddings_router)
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
@@ -23,9 +25,9 @@ async def healthcheck() -> dict[str, str]:
 @app.get("/")
 async def redirect_to_docs() -> RedirectResponse:
     """
-    Redirect user to docs
+    Redirect user to docs.
 
-    :return: RedirectResponse to /docs
+    :return: redirect response to documentation
     """
     return RedirectResponse("/docs")
 
