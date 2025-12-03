@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 
 from sentence_transformers import SentenceTransformer
 
+from src.utils.logger import logger
+
 
 class Vectorizer(ABC):
     """
@@ -35,10 +37,12 @@ class E5Vectorizer(Vectorizer):
     Vectorizer backed by the multilingual E5 model family.
     """
 
-    def __init__(self, model_name: str, dimension: int) -> None:
+    def __init__(self, model_name: str, dimension: int, load_timeout_seconds: float) -> None:
         self._model_name = model_name
         self._dimension = dimension
-        self._model = SentenceTransformer(model_name)
+        self._load_timeout_seconds = load_timeout_seconds
+        self._model: SentenceTransformer | None = None
+        self._load_lock = asyncio.Lock()
 
     @property
     def model_name(self) -> str:
@@ -49,12 +53,20 @@ class E5Vectorizer(Vectorizer):
         return self._dimension
 
     async def embed_text(self, text: str) -> list[float]:
+        """
+        Generate an embedding for the provided text.
+
+        :param text: raw text to encode into a dense vector
+        :return: embedding vector with the configured dimensionality
+        """
+
         cleaned = text.strip()
         if not cleaned:
             return []
 
+        model = await self._ensure_model_loaded()
         embedding = await asyncio.to_thread(
-            self._model.encode,
+            model.encode,
             cleaned,
             normalize_embeddings=True,
             convert_to_numpy=True,
@@ -67,3 +79,41 @@ class E5Vectorizer(Vectorizer):
             )
 
         return vector
+
+    async def _ensure_model_loaded(self) -> SentenceTransformer:
+        """
+        Lazily load the embedding model with timeout protection.
+
+        :return: initialized sentence transformer model
+        """
+
+        if self._model:
+            return self._model
+
+        async with self._load_lock:
+            if self._model:
+                return self._model
+
+            logger.info(
+                "Loading embedding model '%s' with timeout %.1fs",
+                self._model_name,
+                self._load_timeout_seconds,
+            )
+
+            try:
+                model = await asyncio.wait_for(
+                    asyncio.to_thread(SentenceTransformer, self._model_name),
+                    timeout=self._load_timeout_seconds,
+                )
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    f"Timed out while loading embedding model '{self._model_name}'."
+                ) from exc
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"Failed to load embedding model '{self._model_name}'."
+                ) from exc
+
+            self._model = model
+            logger.info("Embedding model '%s' loaded successfully", self._model_name)
+            return model
