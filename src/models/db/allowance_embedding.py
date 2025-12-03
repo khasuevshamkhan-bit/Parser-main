@@ -27,7 +27,11 @@ class AllowanceEmbedding(Base):
         Vector(dim=settings.vector.dimension),
         nullable=False,
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
 
     allowance: Mapped[Allowance] = relationship(
         argument=Allowance,

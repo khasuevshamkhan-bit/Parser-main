@@ -12,10 +12,21 @@ app.include_router(router=allowances_router)
 app.include_router(router=embeddings_router)
 
 
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health", operation_id="healthcheck")
 async def healthcheck() -> dict[str, str]:
     """
     Health endpoint for monitoring integrations.
+
+    :return: health status payload
+    """
+
+    return {"status": "ok"}
+
+
+@app.head("/health", include_in_schema=False)
+async def healthcheck_head() -> dict[str, str]:
+    """
+    Lightweight health probe response for HEAD requests.
 
     :return: health status payload
     """
