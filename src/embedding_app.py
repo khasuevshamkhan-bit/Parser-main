@@ -14,6 +14,8 @@ async def warm_embedding_model() -> None:
     The handler loads the configured vectorizer so that the Hugging Face cache
     is populated before the application container starts, reducing cold starts
     and keeping model dependencies isolated.
+
+    :return: None.
     """
 
     vectorizer = get_vectorizer()
@@ -26,6 +28,8 @@ async def warm_embedding_model() -> None:
 async def healthcheck() -> dict[str, str]:
     """
     Report readiness of the embedding loader container.
+
+    :return: Health payload.
     """
 
     return {"status": "ready"}

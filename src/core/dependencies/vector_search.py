@@ -16,6 +16,8 @@ from src.services.vectorizer import E5Vectorizer, Vectorizer
 def get_vectorizer() -> Vectorizer:
     """
     Provide a singleton vectorizer instance for embedding generation.
+
+    :return: Cached vectorizer instance.
     """
 
     return E5Vectorizer(
@@ -31,6 +33,10 @@ async def get_allowance_embedding_service(
 ) -> AllowanceEmbeddingService:
     """
     Dependency injector for embedding service.
+
+    :param session: Active database session.
+    :param vectorizer: Vectorizer dependency.
+    :return: Configured embedding service.
     """
 
     embedding_repository = AllowanceEmbeddingRepository(session=session)
@@ -48,6 +54,10 @@ async def get_vector_search_service(
 ) -> VectorSearchService:
     """
     Dependency injector for semantic search service.
+
+    :param session: Active database session.
+    :param vectorizer: Vectorizer dependency.
+    :return: Configured vector search service.
     """
 
     embedding_repository = AllowanceEmbeddingRepository(session=session)
