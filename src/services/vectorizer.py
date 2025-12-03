@@ -10,6 +10,10 @@ from sentence_transformers import SentenceTransformer
 from src.utils.logger import logger
 
 DEFAULT_LOAD_TIMEOUT_SECONDS = 300.0
+REQUIRED_FREE_SPACE_BYTES = 2_000_000_000  # ~2GB safeguard for model artifacts
+SOCKET_PROBE_HOST = "huggingface.co"
+SOCKET_PROBE_PORT = 443
+SOCKET_PROBE_TIMEOUT = 5
 
 
 class Vectorizer(ABC):
@@ -123,6 +127,8 @@ class E5Vectorizer(Vectorizer):
                 "Non-positive embedding load timeout configured; applying default timeout "
                 f"{self._load_timeout_seconds:.1f}s."
             )
+
+        self._log_environment_overrides()
 
     @property
     def model_name(self) -> str:
