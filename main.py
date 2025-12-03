@@ -10,16 +10,7 @@ app = FastAPI(title="Allowances Parser Service", swagger_ui_parameters={"operati
 app.include_router(router=allowances_router)
 
 
-@app.on_event("startup")
-async def apply_db_migrations() -> None:
-    """
-    Ensure the database schema is up to date before serving requests.
-    """
-
-    await run_in_threadpool(run_migrations)
-
-
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def healthcheck() -> dict[str, str]:
     """
     Health endpoint for monitoring integrations.

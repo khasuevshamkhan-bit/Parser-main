@@ -40,7 +40,7 @@ services:
       - 8.8.4.4
       - 1.1.1.1
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "wget --spider --quiet --server-response --method=GET http://localhost:8000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
