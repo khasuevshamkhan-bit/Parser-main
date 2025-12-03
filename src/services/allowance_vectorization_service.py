@@ -37,7 +37,7 @@ class AllowanceVectorizationService:
         converted into HTTP-friendly embedding exceptions.
         """
 
-        logger.info("Vectorizing user input for semantic workflows")
+        logger.info(f"Vectorizing user input for semantic workflows")
         normalized = self._query_builder.build_query(user_input=user_input)
         if not normalized:
             raise EmbeddingValidationError(detail="User input is empty after normalization.")
@@ -50,7 +50,9 @@ class AllowanceVectorizationService:
         if not embedding:
             raise EmbeddingProcessingError(detail="Vectorizer returned an empty embedding.")
 
-        logger.info("User input vectorization completed using model '%s'", self._vectorizer.model_name)
+        logger.info(
+            f"User input vectorization completed using model '{self._vectorizer.model_name}'"
+        )
         return embedding
 
     async def vectorize_allowances(self, allowance_ids: list[int]) -> AllowanceVectorizeResultDTO:
