@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import DateTime, Integer, String, JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.db.base import Base
 from src.models.dto.allowances import AllowanceDTO
@@ -21,6 +21,11 @@ class Allowance(Base):
     subjects: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     validity_period: Mapped[str | None] = mapped_column(String(length=128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    embedding = relationship(
+        argument="AllowanceEmbedding",
+        back_populates="allowance",
+        uselist=False,
+    )
 
     def to_dto(self) -> AllowanceDTO:
         """

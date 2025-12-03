@@ -3,6 +3,7 @@ from src.models.db.allowance import Allowance
 from src.models.dto.allowances import AllowanceCreateDTO, AllowanceDTO
 from src.parsers.base import BaseSeleniumParser
 from src.repositories.allowance_repository import AllowanceRepository
+from src.services.allowance_embedding_service import AllowanceEmbeddingService
 from src.utils.logger import logger
 
 
@@ -13,20 +14,21 @@ class AllowanceService:
     Handles business logic for listing, creating, and parsing allowances.
     """
 
-    def __init__(self, repository: AllowanceRepository) -> None:
+    def __init__(
+            self,
+            repository: AllowanceRepository,
+            embedding_service: AllowanceEmbeddingService | None = None,
+    ) -> None:
         """
-        Initialize the allowance service.
-
-        :param repository: repository for allowance persistence
+        Initialize the allowance service with persistence and indexing tools.
         """
 
         self._repository = repository
+        self._embedding_service = embedding_service
 
     async def list_allowances(self) -> list[AllowanceDTO]:
         """
         Fetch all allowances from storage.
-
-        :return: collection of allowance schemas
         """
 
         logger.debug("Fetching all allowances from storage")
@@ -38,9 +40,6 @@ class AllowanceService:
     async def create_allowance(self, payload: AllowanceCreateDTO) -> AllowanceDTO:
         """
         Create and persist an allowance from payload data.
-
-        :param payload: allowance creation data
-        :return: saved allowance schema
         """
 
         logger.debug(f"Creating allowance: name='{payload.name[:50]}...'")
@@ -70,14 +69,14 @@ class AllowanceService:
         saved = await self._repository.create(allowance=allowance)
         logger.info(f"Created allowance with id={saved.id}")
 
+        if self._embedding_service:
+            await self._embedding_service.index_allowance(allowance=saved)
+
         return saved.to_dto()
 
     async def parse_and_replace(self, parser: BaseSeleniumParser) -> list[AllowanceDTO]:
         """
         Run parser and persist only new allowances based on NPA names.
-
-        :param parser: Selenium parser instance to execute
-        :return: persisted parsed allowances
         """
 
         parser_name = parser.__class__.__name__
@@ -176,15 +175,15 @@ class AllowanceService:
             f"(skipped existing in DB={len(existing_npa_names)})"
         )
 
+        if self._embedding_service:
+            await self._embedding_service.index_many(allowances=models)
+
         return [model.to_dto() for model in models]
 
     @staticmethod
     def _clean_text(value: str) -> str:
         """
         Normalize free-form text for persistence.
-
-        :param value: raw text to clean
-        :return: cleaned text value
         """
 
         return " ".join(value.split()).strip()
@@ -192,9 +191,6 @@ class AllowanceService:
     def _normalize_subjects(self, subjects: list[str] | None) -> list[str] | None:
         """
         Normalize subject collection.
-
-        :param subjects: list of subject strings or None
-        :return: cleaned list of subjects or None
         """
 
         if not subjects:
