@@ -1,15 +1,13 @@
 import asyncio
-import importlib.util
-import inspect
+import hashlib
 import os
-import time
 from abc import ABC, abstractmethod
+from typing import Optional
 
-from huggingface_hub import snapshot_download
+import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from src.utils.logger import logger
-
 
 DEFAULT_LOAD_TIMEOUT_SECONDS = 300.0
 
@@ -22,59 +20,108 @@ class Vectorizer(ABC):
     @property
     @abstractmethod
     def model_name(self) -> str:
-        """
-        Return the underlying model identifier.
-
-        :return: Model identifier.
-        """
+        """Return the underlying model identifier."""
 
     @property
     @abstractmethod
     def dimension(self) -> int:
-        """
-        Return the expected embedding dimensionality.
-
-        :return: Embedding dimensionality.
-        """
+        """Return the expected embedding dimensionality."""
 
     @abstractmethod
     async def embed_text(self, text: str) -> list[float]:
-        """
-        Generate an embedding for the provided text.
-
-        :param text: Source text to encode.
-        :return: Normalized embedding vector.
-        """
+        """Generate an embedding for the provided text."""
 
     @abstractmethod
     async def warm_up(self) -> None:
-        """
-        Ensure the underlying model is fully loaded and ready.
+        """Ensure the underlying model is fully loaded and ready."""
 
-        :return: None.
-        """
+
+class HashVectorizer(Vectorizer):
+    """Offline-friendly deterministic vectorizer using hashing.
+
+    This backend avoids any network downloads by deriving fixed-size vectors from
+    the input text via a seeded NumPy RNG. It is intended for local development
+    and CI environments where Hugging Face access is blocked.
+    """
+
+    def __init__(self, dimension: int = 384) -> None:
+        self._dimension = max(8, dimension)  # keep a reasonable minimum
+
+    @property
+    def model_name(self) -> str:
+        return "local-hash"
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    async def embed_text(self, text: str) -> list[float]:
+        cleaned = text.strip()
+        if not cleaned:
+            return []
+
+        seed_bytes = hashlib.sha256(cleaned.encode("utf-8")).digest()
+        seed = int.from_bytes(seed_bytes[:8], "little", signed=False)
+        vector = await asyncio.to_thread(self._generate_vector, seed)
+        return vector
+
+    def _generate_vector(self, seed: int) -> list[float]:
+        rng = np.random.default_rng(seed)
+        raw = rng.standard_normal(self._dimension)
+        norm = np.linalg.norm(raw)
+        if norm == 0:
+            return [0.0] * self._dimension
+        normalized = raw / norm
+        return normalized.tolist()
+
+    async def warm_up(self) -> None:
+        # Nothing to preload for the hash backend
+        return
 
 
 class E5Vectorizer(Vectorizer):
     """
     Vectorizer backed by the multilingual E5 model family.
+
+    The E5 family expects every query to be prefixed with ``"query: "`` and
+    every document with ``"passage: "`` (even for Russian text). We keep that
+    contract in ``QueryEmbeddingBuilder`` and ``AllowanceEmbeddingBuilder`` so
+    callers only need to pass in raw questionnaire or allowance text.
     """
 
-    def __init__(self, model_name: str, dimension: int, load_timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        dimension: int,
+        load_timeout_seconds: float,
+        offline: bool,
+        local_model_path: str | None = None,
+    ) -> None:
         self._model_name = model_name
-        self._dimension = dimension
-        self._load_timeout_seconds = self._resolve_timeout(configured_timeout=load_timeout_seconds)
-        self._model: SentenceTransformer | None = None
+        self._configured_dimension = dimension
+        self._load_timeout_seconds = load_timeout_seconds if load_timeout_seconds > 0 else DEFAULT_LOAD_TIMEOUT_SECONDS
+        self._model: Optional[SentenceTransformer] = None
         self._load_lock = asyncio.Lock()
-        self._cache_home = self._resolve_cache_home()
-        signature = inspect.signature(snapshot_download)
-        self._snapshot_supports_progress = "progress_callback" in signature.parameters
-        self._snapshot_accepts_hf_transfer = "use_hf_transfer" in signature.parameters
+        self._cache_dir = self._resolve_cache_dir()
+        self._offline = offline
+        self._local_model_path = local_model_path
+
+        logger.info(
+            "Embedding model configured",
+            extra={
+                "model": self._model_name,
+                "dimension": self._configured_dimension,
+                "cache_dir": self._cache_dir,
+                "offline": self._offline,
+                "local_model_path": self._local_model_path,
+                "timeout_seconds": self._load_timeout_seconds,
+            },
+        )
 
         if load_timeout_seconds <= 0:
             logger.warning(
                 "Non-positive embedding load timeout configured; applying default timeout "
-                f"{self._load_timeout_seconds:.1f}s to prevent indefinite startup waits."
+                f"{self._load_timeout_seconds:.1f}s."
             )
 
     @property
@@ -83,7 +130,7 @@ class E5Vectorizer(Vectorizer):
 
     @property
     def dimension(self) -> int:
-        return self._dimension
+        return self._configured_dimension
 
     async def embed_text(self, text: str) -> list[float]:
         """
@@ -91,9 +138,6 @@ class E5Vectorizer(Vectorizer):
 
         The text is trimmed before encoding. Returns an empty list when the
         cleaned content is empty.
-
-        :param text: Source text to encode.
-        :return: Normalized embedding vector.
         """
 
         cleaned = text.strip()
@@ -101,433 +145,150 @@ class E5Vectorizer(Vectorizer):
             return []
 
         model = await self._ensure_model_loaded()
-        embedding = await asyncio.to_thread(
+        vector = await asyncio.to_thread(
             model.encode,
             cleaned,
             normalize_embeddings=True,
             convert_to_numpy=True,
         )
-        vector = embedding.tolist()
 
-        if len(vector) != self._dimension:
+        values = vector.tolist()
+        if len(values) != self._configured_dimension:
             raise ValueError(
-                f"Unexpected embedding size {len(vector)} for model '{self._model_name}', expected {self._dimension}."
+                "Unexpected embedding size for model '{model}': got {got}, expected {expected}. "
+                "Set EMBEDDING_DIM to the model's dimension and re-run the pgvector migration."
+                .format(
+                    model=self._model_name,
+                    got=len(values),
+                    expected=self._configured_dimension,
+                )
             )
 
-        return vector
+        return values
 
     async def warm_up(self) -> None:
-        """
-        Load the embedding model proactively during application startup.
-
-        :return: None.
-        """
+        """Load the embedding model proactively during application startup."""
 
         await self._ensure_model_loaded()
 
-    @staticmethod
-    def _resolve_timeout(configured_timeout: float) -> float:
-        """
-        Determine the timeout used to guard model initialization.
-
-        A non-positive configured timeout is replaced with a safe default to
-        avoid unbounded waits when remote model downloads hang.
-
-        :param configured_timeout: Timeout requested by configuration.
-        :return: Timeout used for model initialization.
-        """
-
-        if configured_timeout > 0:
-            return configured_timeout
-
-        return DEFAULT_LOAD_TIMEOUT_SECONDS
-
     async def _ensure_model_loaded(self) -> SentenceTransformer:
-        """
-        Lazily load the embedding model with optional timeout protection.
-
-        :return: Loaded embedding model.
-        """
-
         if self._model:
-            logger.info(f"Embedding model '{self._model_name}' already loaded, reusing instance")
             return self._model
 
         async with self._load_lock:
             if self._model:
-                logger.info(f"Embedding model '{self._model_name}' already loaded, reusing instance")
                 return self._model
 
-            timeout = self._load_timeout_seconds
             logger.info(
-                f"Loading embedding model '{self._model_name}' with timeout {timeout:.1f}s"
+                f"Loading embedding model '{self._model_name}' (offline={self._offline})"
             )
 
-            progress_stop = asyncio.Event()
-            progress_task: asyncio.Task | None = None
-
-            logger.info(
-                f"Preparing model files for '{self._model_name}' using cache directory '{self._cache_home}'."
+            load_task = asyncio.to_thread(
+                self._load_model,
             )
 
-            try:
-                model_path = await self._download_model_snapshot()
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    f"Failed to download model files for '{self._model_name}' before initialization."
-                )
-                raise RuntimeError(
-                    f"Failed to download model files for '{self._model_name}'."
-                ) from exc
+            if self._load_timeout_seconds > 0:
+                model = await asyncio.wait_for(load_task, timeout=self._load_timeout_seconds)
+            else:
+                model = await load_task
 
-            async def _log_progress() -> None:
-                loop = asyncio.get_running_loop()
-                started = loop.time()
-                while not progress_stop.is_set():
-                    await asyncio.sleep(15)
-                    elapsed = loop.time() - started
-                    if not progress_stop.is_set():
-                        logger.info(
-                            f"Embedding model '{self._model_name}' still loading (elapsed {elapsed:.1f}s)"
-                        )
-
-            try:
-                progress_task = asyncio.create_task(_log_progress())
-                if timeout and timeout > 0:
-                    model = await asyncio.wait_for(
-                        asyncio.to_thread(SentenceTransformer, model_path),
-                        timeout=timeout,
-                    )
-                else:
-                    model = await asyncio.to_thread(
-                        SentenceTransformer,
-                        model_path,
-                    )
-            except asyncio.TimeoutError as exc:
-                raise RuntimeError(
-                    f"Timed out while loading embedding model '{self._model_name}'."
-                ) from exc
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(
-                    f"Failed to load embedding model '{self._model_name}'."
-                ) from exc
-            finally:
-                progress_stop.set()
-                if progress_task:
-                    await progress_task
-
+            self._validate_dimension(model)
             self._model = model
-            logger.info(f"Embedding model '{self._model_name}' loaded successfully")
+            logger.info(
+                f"Embedding model '{self._model_name}' loaded with dimension {self._configured_dimension}"
+            )
             return model
 
-    async def _download_model_snapshot(self) -> str:
-        """
-        Ensure model artifacts are available locally and emit detailed progress logs.
-
-        :return: Filesystem path of the downloaded model snapshot.
-        """
-
-        offline_flag = self._parse_env_flag(
-            raw_value=os.getenv("HF_HUB_OFFLINE") or os.getenv("TRANSFORMERS_OFFLINE"),
-        )
-        if offline_flag:
-            logger.warning(
-                f"Offline mode detected while preparing '{self._model_name}'; relying on local cache."
-            )
-
-        reporter = _DownloadProgressLogger(model_name=self._model_name)
-        cache_dir = os.path.join(self._cache_home, "hub")
-        os.makedirs(cache_dir, exist_ok=True)
-
-        logger.info(
-            f"Starting snapshot download for '{self._model_name}' to cache '{cache_dir}'."
-        )
-
-        if not self._snapshot_supports_progress:
-            logger.warning(
-                "Installed huggingface_hub does not support progress callbacks; "
-                "download progress percentages will be unavailable."
-            )
-
-        snapshot_kwargs = self._build_snapshot_kwargs(
-            offline_flag=offline_flag,
-            cache_dir=cache_dir,
-            reporter=reporter,
-        )
-
-        hf_transfer_enabled = self._should_use_hf_transfer()
-        if self._snapshot_accepts_hf_transfer:
-            snapshot_kwargs["use_hf_transfer"] = hf_transfer_enabled
-        elif hf_transfer_enabled:
-            logger.warning(
-                "Fast download using 'hf_transfer' requested but installed huggingface_hub "
-                "does not support explicit toggle; relying on environment configuration instead."
-            )
-
-        try:
-            snapshot_path = await asyncio.to_thread(
-                snapshot_download,
-                **snapshot_kwargs,
-            )
-        except TypeError as exc:
-            if "use_hf_transfer" in snapshot_kwargs and "use_hf_transfer" in str(exc):
-                logger.warning(
-                    "Snapshot download does not accept 'use_hf_transfer'; retrying without explicit toggle."
-                )
-                snapshot_kwargs.pop("use_hf_transfer", None)
-                snapshot_path = await asyncio.to_thread(
-                    snapshot_download,
-                    **snapshot_kwargs,
-                )
+    def _load_model(self) -> SentenceTransformer:
+        model_source = self._local_model_path or self._model_name
+        if self._offline:
+            if self._local_model_path:
+                if not os.path.exists(self._local_model_path):
+                    raise RuntimeError(
+                        f"Offline mode is enabled but local model path '{self._local_model_path}' does not exist. "
+                        "Mount or bake the model files into the image and set EMBEDDING_LOCAL_MODEL to that path."
+                    )
             else:
-                logger.error(
-                    f"Snapshot download failed for '{self._model_name}' with error: {exc}"
-                )
-                raise
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                f"Snapshot download failed for '{self._model_name}' with error: {exc}"
+                candidate_dir = os.path.join(self._cache_dir, "models", self._sanitize_model_name())
+                if not os.path.isdir(candidate_dir):
+                    raise RuntimeError(
+                        "Offline mode is enabled; no local model files were found. "
+                        "Download the model once and mount it to EMBEDDING_LOCAL_MODEL or to the Hugging Face cache."
+                    )
+                model_source = candidate_dir
+
+        return SentenceTransformer(
+            model_source,
+            cache_folder=self._cache_dir,
+            local_files_only=self._offline,
+        )
+
+    def _validate_dimension(self, model: SentenceTransformer) -> None:
+        actual_dim = model.get_sentence_embedding_dimension()
+        if self._configured_dimension == actual_dim:
+            return
+
+        if self._configured_dimension <= 0:
+            logger.warning(
+                "EMBEDDING_DIM was non-positive; adopting model dimension %s", actual_dim
             )
-            raise
+            self._configured_dimension = actual_dim
+            return
 
-        reporter.log_final()
-        logger.info(
-            f"Snapshot for '{self._model_name}' available at '{snapshot_path}'."
+        raise RuntimeError(
+            "Model dimension mismatch: configured %s, model reports %s. "
+            "Update EMBEDDING_DIM and the pgvector column dimension to proceed." % (
+                self._configured_dimension,
+                actual_dim,
+            )
         )
 
-        return snapshot_path
-
-    def _build_snapshot_kwargs(
-        self,
-        offline_flag: bool,
-        cache_dir: str,
-        reporter: "_DownloadProgressLogger",
-    ) -> dict[str, object]:
-        """
-        Compose keyword arguments for snapshot download calls.
-
-        :param offline_flag: Indicator for offline cache-only mode.
-        :param cache_dir: Destination cache directory.
-        :param reporter: Progress logger when supported.
-        :return: Dictionary of snapshot_download parameters.
-        """
-
-        snapshot_kwargs: dict[str, object] = {
-            "repo_id": self._model_name,
-            "local_files_only": offline_flag,
-            "resume_download": True,
-            "cache_dir": cache_dir,
-        }
-
-        if self._snapshot_supports_progress:
-            snapshot_kwargs["progress_callback"] = reporter
-
-        return snapshot_kwargs
-
-    def _should_use_hf_transfer(self) -> bool:
-        """
-        Decide whether to enable optional hf_transfer acceleration.
-
-        :return: Flag indicating whether hf_transfer can be used safely.
-        """
-
-        transfer_flag = self._parse_env_flag(
-            raw_value=os.getenv("HF_HUB_ENABLE_HF_TRANSFER"),
-        )
-        if not transfer_flag:
-            return False
-
-        if self._hf_transfer_available():
-            return True
-
-        logger.warning(
-            "Fast download using 'hf_transfer' requested but package is unavailable; falling back to standard download."
-        )
-        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
-        return False
-
-    @staticmethod
-    def _parse_env_flag(raw_value: str | None) -> bool:
-        """
-        Convert common truthy environment encodings to boolean form.
-
-        :param raw_value: Raw environment value to interpret.
-        :return: Parsed boolean flag.
-        """
-
-        if raw_value is None:
-            return False
-
-        normalized = raw_value.strip().lower()
-        return normalized in {"1", "true", "yes", "on"}
-
-    @staticmethod
-    def _hf_transfer_available() -> bool:
-        """
-        Determine whether the hf_transfer package can be imported.
-
-        :return: Flag indicating availability of hf_transfer.
-        """
-
-        return importlib.util.find_spec("hf_transfer") is not None
-
-    def _resolve_cache_home(self) -> str:
-        """
-        Resolve a writable Hugging Face cache directory with a safe fallback.
-
-        Preference is given to the HF_HOME environment variable. When the
-        configured path is not writable, the directory is redirected to
-        ``/tmp/huggingface`` to avoid permission failures on startup.
-
-        :return: Path to the resolved cache directory.
-        """
-
-        configured_home = os.getenv("HF_HOME") or os.path.join(
-            os.path.expanduser("~"),
-            ".cache",
-            "huggingface",
-        )
-        candidates = [configured_home, "/tmp/huggingface"]
-
-        for path in candidates:
+    def _resolve_cache_dir(self) -> str:
+        explicit = os.getenv("HF_HOME")
+        default_home = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+        for candidate in [explicit, default_home, "/tmp/huggingface"]:
+            if not candidate:
+                continue
             try:
-                os.makedirs(path, exist_ok=True)
-                test_path = os.path.join(path, ".write_test")
-                with open(test_path, "w", encoding="utf-8") as handle:
+                os.makedirs(candidate, exist_ok=True)
+                test_file = os.path.join(candidate, ".write_test")
+                with open(test_file, "w", encoding="utf-8") as handle:
                     handle.write("ok")
-                os.remove(test_path)
-                os.environ["HF_HOME"] = path
-                return path
+                os.remove(test_file)
+                return candidate
             except OSError:
-                logger.warning(
-                    f"Cache directory '{path}' is not writable; attempting fallback.",
-                )
-
+                logger.warning("Cache directory '%s' is not writable; trying fallback", candidate)
         raise RuntimeError("No writable Hugging Face cache directory available.")
 
+    def _sanitize_model_name(self) -> str:
+        return self._model_name.replace("/", "__")
 
-class _DownloadProgressLogger:
-    """
-    Helper to log download progress with percentages and throughput.
 
-    :param model_name: Identifier of the model being downloaded.
-    """
-
-    def __init__(self, model_name: str) -> None:
-        self._model_name = model_name
-        self._start_time = time.monotonic()
-        self._last_logged_time = self._start_time
-        self._last_logged_bytes = 0
-        self._last_logged_percent = -1.0
-        self._total_bytes: int | None = None
-
-    def __call__(self, current_bytes: int, total_bytes: int) -> None:
-        """
-        Emit progress metrics for the current download state.
-
-        :param current_bytes: Number of bytes downloaded so far.
-        :param total_bytes: Total payload size if known.
-        """
-
-        self._total_bytes = total_bytes if total_bytes > 0 else None
-        now = time.monotonic()
-        elapsed_since_last = now - self._last_logged_time
-
-        percent = self._calculate_percent(current_bytes=current_bytes)
-        if not self._should_log(percent=percent, elapsed_since_last=elapsed_since_last):
-            return
-
-        speed = self._calculate_speed(
-            current_bytes=current_bytes,
-            elapsed_since_last=elapsed_since_last,
-        )
-        total_mb = self._bytes_to_megabytes(self._total_bytes)
-        current_mb = self._bytes_to_megabytes(current_bytes)
-
-        if total_mb is not None:
-            logger.info(
-                f"Downloading '{self._model_name}': {current_mb:.1f}MB / {total_mb:.1f}MB "
-                f"({percent:.1f}%) at {speed:.2f}MB/s"
-            )
-        else:
-            logger.info(
-                f"Downloading '{self._model_name}': {current_mb:.1f}MB downloaded, total size unknown "
-                f"at {speed:.2f}MB/s"
-            )
-
-        self._last_logged_time = now
-        self._last_logged_bytes = current_bytes
-        self._last_logged_percent = percent
-
-    def log_final(self) -> None:
-        """
-        Log completion metrics once the download finishes.
-
-        :return: None.
-        """
-
-        if self._total_bytes is None:
-            return
-
-        total_mb = self._bytes_to_megabytes(self._total_bytes)
-        elapsed = time.monotonic() - self._start_time
-        avg_speed = (self._total_bytes / 1024 / 1024) / elapsed if elapsed > 0 else 0.0
+def create_vectorizer(
+    backend: str,
+    model_name: str,
+    dimension: int,
+    load_timeout_seconds: float,
+    offline: bool,
+    local_model_path: str | None = None,
+) -> Vectorizer:
+    normalized_backend = (backend or "").strip().lower()
+    if normalized_backend == "hash":
         logger.info(
-            f"Completed download for '{self._model_name}': {total_mb:.1f}MB in {elapsed:.1f}s "
-            f"(avg {avg_speed:.2f}MB/s)"
+            "Using offline hash vectorizer backend",
+            extra={"dimension": dimension},
+        )
+        return HashVectorizer(dimension=dimension)
+
+    if normalized_backend in {"hf", "huggingface", "e5"}:
+        return E5Vectorizer(
+            model_name=model_name,
+            dimension=dimension,
+            load_timeout_seconds=load_timeout_seconds,
+            offline=offline,
+            local_model_path=local_model_path,
         )
 
-    def _calculate_percent(self, current_bytes: int) -> float:
-        """
-        Convert the current byte offset into a percentage.
-
-        :param current_bytes: Number of bytes downloaded so far.
-        :return: Download completion percentage.
-        """
-
-        if not self._total_bytes:
-            return 0.0
-
-        return (current_bytes / self._total_bytes) * 100
-
-    def _should_log(self, percent: float, elapsed_since_last: float) -> bool:
-        """
-        Determine whether the current progress event should be emitted.
-
-        :param percent: Percentage completed.
-        :param elapsed_since_last: Seconds since the last emitted message.
-        :return: Flag indicating whether to emit the log entry.
-        """
-
-        if elapsed_since_last < 1.0 and percent - self._last_logged_percent < 5.0:
-            return False
-
-        return True
-
-    def _calculate_speed(self, current_bytes: int, elapsed_since_last: float) -> float:
-        """
-        Compute instantaneous download speed in megabytes per second.
-
-        :param current_bytes: Number of bytes downloaded so far.
-        :param elapsed_since_last: Seconds since the prior event.
-        :return: Instantaneous download speed in megabytes per second.
-        """
-
-        delta_bytes = current_bytes - self._last_logged_bytes
-        if elapsed_since_last <= 0:
-            return 0.0
-
-        return (delta_bytes / 1024 / 1024) / elapsed_since_last
-
-    def _bytes_to_megabytes(self, size_in_bytes: int | None) -> float | None:
-        """
-        Convert byte counts to megabytes.
-
-        :param size_in_bytes: Byte count to convert.
-        :return: Size converted to megabytes when available.
-        """
-
-        if size_in_bytes is None:
-            return None
-
-        return size_in_bytes / 1024 / 1024
+    raise ValueError(
+        f"Unsupported EMBEDDING_BACKEND '{backend}'. Use 'hash' for offline hash embeddings or 'hf' for Hugging Face models."
+    )
